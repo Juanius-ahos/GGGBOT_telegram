@@ -21,6 +21,20 @@ export async function fetchAllTimeframes(t: Pick<WatchToken, 'pair_address' | 'a
   return multiTimeframe(base, config.timeframes, config.detectCandles);
 }
 
+/** Scan GeckoTerminal history that was fetched anyway (live-tracker seed / re-sync) on every timeframe. */
+export async function scanFetchedHistory(db: Db, t: WatchToken, base15m: Candle[], notifier: Notifier): Promise<number> {
+  const byTf = multiTimeframe(base15m, config.timeframes, config.detectCandles);
+  let found = 0;
+  for (const tf of config.timeframes) {
+    const candles = byTf.get(tf)!;
+    for (const s of findSignals(candles, tf, config.scan.breakoutLookbackCandles, config)) {
+      found++;
+      await maybeAlert(db, t, s, candles, notifier, 'seed-scan');
+    }
+  }
+  return found;
+}
+
 /** GeckoTerminal calls one scan may spend, leaving a reserve for discovery. */
 export function scanBudget(): number {
   const perScan = Math.floor((config.rateLimits.geckoterminal * config.jobs.patternScanIntervalMs) / 60_000);

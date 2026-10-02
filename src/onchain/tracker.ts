@@ -109,6 +109,11 @@ export class LiveTracker {
   readonly drift: DriftStats = { candles: 0, closeErrPctSum: 0, highErrPctSum: 0, lowErrPctSum: 0, liveVolume: 0, gtVolume: 0 };
   private running: Promise<void> | null = null;
   private stopped = false;
+  /**
+   * Called with the GeckoTerminal history fetched for every seed / re-sync. That history is exactly what
+   * the scanner needs, so scanning it here saves a second GeckoTerminal call per token.
+   */
+  onSeed: ((token: WatchToken, base15m: Candle[]) => void) | null = null;
 
   constructor() {
     this.ws = new SolanaWsPool(wsUrlFor(config.rpcUrl), (accounts) => {
@@ -143,6 +148,14 @@ export class LiveTracker {
   isLive(address: string): boolean {
     const p = this.pools.get(address);
     return !!p && !p.dirty && p.seededAt > 0;
+  }
+
+  /**
+   * Live, re-syncing, or waiting for setup: these get scanned from their seed fetch, so the
+   * GeckoTerminal rotation can skip them. Only pools that can't be tracked on-chain stay in the rotation.
+   */
+  isCovered(address: string): boolean {
+    return this.pools.has(address) || this.queued.has(address);
   }
 
   stats() {
@@ -318,6 +331,7 @@ export class LiveTracker {
     p.series.seed(candles);
     p.seededAt = Date.now();
     p.dirty = false;
+    this.onSeed?.(p.token, candles);
     return true;
   }
 

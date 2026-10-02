@@ -79,6 +79,13 @@ export const config = {
     /** Postgres URL (e.g. Neon free) for database snapshots. Empty = local disk only. */
     databaseUrl: process.env.DATABASE_URL?.trim() || '',
     snapshotMinutes: envNum('SNAPSHOT_MINUTES', 30),
+    /**
+     * Upload snapshots only from the hosted instance (Render sets RENDER=true) or when forced with
+     * SNAPSHOT_UPLOAD=1. Local/dev copies may restore from snapshots but never overwrite them.
+     */
+    snapshotUpload: process.env.SNAPSHOT_UPLOAD === '1' || process.env.RENDER === 'true',
+    /** Seconds to wait before restoring, so an overlapping previous instance can save its final snapshot. */
+    handoffDelaySec: envNum('HANDOFF_DELAY_SEC', process.env.RENDER === 'true' ? 45 : 0),
     /** If set, serve GET /health on this port. Render sets PORT automatically. */
     port: envNum('PORT', 0),
     /** If set, ping our own /health every 10 min. Render sets RENDER_EXTERNAL_URL automatically. */

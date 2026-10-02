@@ -8,6 +8,7 @@ import { openDb } from '../src/db/index.js';
 import { SnapshotSaver } from '../src/db/snapshot.js';
 
 if (!config.hosting.databaseUrl) throw new Error('Set DATABASE_URL first');
+// Explicit, manual upload: this REPLACES the live bot's state on its next restart. Only run it on purpose.
 const db = openDb(config.dbPath);
 await new SnapshotSaver(db, config.hosting.databaseUrl, 60_000).save(true);
 db.close();

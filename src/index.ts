@@ -5,7 +5,7 @@ import { errMsg } from './lib/http.js';
 import { logger } from './logger.js';
 import { runDiscovery } from './jobs/discovery.js';
 import { runOutcomeTracker } from './jobs/outcomes.js';
-import { runPatternScan, scanBudget } from './jobs/patternScan.js';
+import { runPatternScan, scanBudget, scanFetchedHistory } from './jobs/patternScan.js';
 import { DryRunNotifier, type Notifier } from './bot/notifier.js';
 import { Scheduler } from './jobs/scheduler.js';
 import { PumpPortalStream } from './sources/pumpportal.js';
@@ -31,7 +31,17 @@ async function main(): Promise<void> {
   }
 
   // Ephemeral-disk hosts (Render free): pull the last snapshot from Postgres before opening the DB.
+  // Health endpoint first: hosts (Render) only retire the previous instance once this one answers.
+  let healthStatus: () => Record<string, unknown> = () => ({ starting: true, uptimeSec: Math.round(process.uptime()) });
+  const server = config.hosting.port ? startHealthServer(config.hosting.port, () => healthStatus()) : null;
+
   if (config.hosting.databaseUrl) {
+    // Zero-downtime redeploys overlap old and new instance. Give the old one time to receive SIGTERM and
+    // upload its final snapshot before this one restores, so nothing written in between is lost.
+    if (config.hosting.handoffDelaySec > 0) {
+      logger.info({ seconds: config.hosting.handoffDelaySec }, 'waiting for previous instance to hand over its snapshot');
+      await new Promise((r) => setTimeout(r, config.hosting.handoffDelaySec * 1000));
+    }
     try {
       const r = await restoreIfMissing(config.dbPath, config.hosting.databaseUrl);
       logger.info({ result: r }, 'snapshot restore check');
@@ -40,7 +50,8 @@ async function main(): Promise<void> {
     }
   }
   const db = openDb(config.dbPath);
-  const saver = config.hosting.databaseUrl ? new SnapshotSaver(db, config.hosting.databaseUrl, config.hosting.snapshotMinutes * 60_000) : null;
+  // Only the hosted instance uploads; a dev copy with the same DATABASE_URL must never overwrite live state.
+  const saver = config.hosting.databaseUrl && config.hosting.snapshotUpload ? new SnapshotSaver(db, config.hosting.databaseUrl, config.hosting.snapshotMinutes * 60_000) : null;
   saver?.start();
   logger.info({ db: config.dbPath, rpc: config.rpcUrl.replace(/api[-_]?key=[^&]+/i, 'api-key=***'), gtRpm: config.rateLimits.geckoterminal, scanBudget: scanBudget(), dryRun }, 'starting soleye');
 
@@ -79,7 +90,12 @@ async function main(): Promise<void> {
     tracker.start();
     syncTracker(); // tokens that already passed rug checks in a previous run
   }
-  const isLive = (address: string) => tracker?.isLive(address) ?? false;
+  // Tokens covered by the live tracker are scanned from its seed fetches; the GT rotation handles the rest.
+  const isLive = (address: string) => tracker?.isCovered(address) ?? false;
+  if (tracker) {
+    tracker.onSeed = (token, base15m) =>
+      void scanFetchedHistory(db, token, base15m, notifier).catch((err) => logger.error({ token: token.symbol, err: errMsg(err) }, 'seed scan failed'));
+  }
   bot?.setLiveStats(() => {
     if (!tracker) return null;
     const s = tracker.stats();
@@ -99,8 +115,7 @@ async function main(): Promise<void> {
   scheduler.add('outcomes', outcomeIntervalMs, () => runOutcomeTracker(db, notifier, stopped), 30_000);
 
   // Web port + keep-awake for hosts that sleep idle web services (Render sets PORT and RENDER_EXTERNAL_URL).
-  const server = config.hosting.port
-    ? startHealthServer(config.hosting.port, () => ({
+  healthStatus = () => ({
         uptimeSec: Math.round(process.uptime()),
         lastDiscovery: db.getKv('job:discovery:last') ? new Date(Number(db.getKv('job:discovery:last'))).toISOString() : null,
         live: tracker?.stats().live ?? 0,
@@ -112,8 +127,7 @@ async function main(): Promise<void> {
           Object.entries(limiters).map(([k, l]) => [k, { ok: l.completed, rateLimited: l.rateLimitHits, queued: l.queued, intervalMs: l.intervalMs }]),
         ),
         memMb: Math.round(process.memoryUsage().rss / 1e6),
-      }))
-    : null;
+      });
   const pinger = config.hosting.publicUrl ? startSelfPing(config.hosting.publicUrl, 10 * 60_000) : null;
 
   let shuttingDown = false;
@@ -126,13 +140,15 @@ async function main(): Promise<void> {
       process.exit(1);
     }, 30_000);
     force.unref();
+    // Snapshot FIRST: hosts like Render kill the process ~30s after SIGTERM, and waiting for jobs can take that long.
+    const finalSave = saver?.stop();
     pumpportal.stop();
     tracker?.stop();
     if (pinger) clearInterval(pinger);
     server?.close();
-    await scheduler.stop();
+    await finalSave;
+    await scheduler.stop(15_000);
     await bot?.stop();
-    await saver?.stop(); // final snapshot so a redeploy/restart loses nothing
     db.close();
     logger.info('bye');
     process.exit(0);

@@ -110,3 +110,23 @@ tests/                 detector (synthetic candles), filters, outcome resolution
 ```
 
 Not financial advice. Patterns fail; use the invalidation level.
+
+## Working on it from another PC
+
+```bash
+git clone https://github.com/Juanius-ahos/GGGBOT_telegram.git
+cd GGGBOT_telegram
+npm install
+cp .env.example .env      # then put a bot token in .env (never commit .env)
+npm test
+```
+
+**Only one copy of the bot may run per Telegram token.** If the live bot is running (server or another PC) and you
+start a second copy with the same token, both fight over Telegram updates and alerts can be duplicated. While the
+live bot runs, develop with either:
+
+- `DRY_RUN=1 npm run dev` — scans for real, writes alert charts to `data/previews/` instead of sending, or
+- a second test bot from @BotFather with its own token in your local `.env`.
+
+Ship a change: `git add -A && git commit -m "..." && git push`. If the live bot is on Render with auto-deploy,
+it rebuilds and restarts on its own (state is restored from the Neon snapshot). On a PC/VPS: `git pull && npm ci && npm run build && npx pm2 restart soleye`.

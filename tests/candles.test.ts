@@ -83,3 +83,18 @@ describe('hasUiScaling (Token-2022 extension scan)', () => {
     expect(hasUiScaling('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', Buffer.alloc(82))).toBe(false);
   });
 });
+
+import { LiveTracker } from '../src/onchain/tracker.js';
+
+describe('LiveTracker.sync', () => {
+  it('drops queued set-ups for tokens that left the watchlist', () => {
+    const tr = new LiveTracker() as unknown as { setupQueue: { address: string }[]; queued: Set<string>; kick(): void; sync(t: unknown[]): void };
+    tr.kick = () => undefined; // don't start fetching in a unit test
+    const tok = (address: string) => ({ address, pair_address: `P${address}`, volume_24h: 1, symbol: address });
+    tr.sync([tok('A'), tok('B'), tok('C')]);
+    expect(tr.setupQueue.map((t) => t.address).sort()).toEqual(['A', 'B', 'C']);
+    tr.sync([tok('B')]);
+    expect(tr.setupQueue.map((t) => t.address)).toEqual(['B']);
+    expect([...tr.queued]).toEqual(['B']);
+  });
+});

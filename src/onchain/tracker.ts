@@ -104,6 +104,7 @@ export class LiveTracker {
   private unsupported = new Map<string, string>(); // token address -> reason
   private setupQueue: WatchToken[] = [];
   private queued = new Set<string>();
+  private inSetup = new Set<string>();
   private ws: SolanaWsPool;
   readonly quotes = new QuotePrices();
   private loops: NodeJS.Timeout[] = [];
@@ -202,6 +203,12 @@ export class LiveTracker {
       if (!t || t.pair_address !== p.token.pair_address) this.remove(addr);
       else p.token = t; // refresh MC/liquidity snapshot
     }
+    // Drop queued set-ups for tokens that left the watchlist (e.g. now above the max market cap), so they
+    // don't burn scarce GeckoTerminal calls. A token mid-setup is left alone and removed by the next sync.
+    const before = this.setupQueue.length;
+    this.setupQueue = this.setupQueue.filter((t) => want.has(t.address));
+    for (const addr of [...this.queued]) if (!want.has(addr) && !this.setupQueue.some((t) => t.address === addr) && !this.inSetup.has(addr)) this.queued.delete(addr);
+    if (this.setupQueue.length < before) log.info({ dropped: before - this.setupQueue.length }, 'removed queued set-ups no longer on the watchlist');
     for (const t of tokens) {
       if (this.pools.has(t.address) || this.unsupported.has(t.address) || this.queued.has(t.address)) continue;
       this.queued.add(t.address);
@@ -229,13 +236,17 @@ export class LiveTracker {
         while (!this.stopped) {
           const next = this.setupQueue.shift();
           if (next) {
+            this.inSetup.add(next.address);
             // Stays in `queued` until setup finishes, so a concurrent sync() can't queue it twice.
             await this.setup(next)
               .catch((err) => {
                 this.unsupported.set(next.address, `setup error: ${errMsg(err)}`);
                 log.warn({ token: next.symbol, err: errMsg(err) }, 'live setup failed; using GT rotation');
               })
-              .finally(() => this.queued.delete(next.address));
+              .finally(() => {
+                this.queued.delete(next.address);
+                this.inSetup.delete(next.address);
+              });
             continue;
           }
           const resyncMs = config.live.resyncHours * 3_600_000;

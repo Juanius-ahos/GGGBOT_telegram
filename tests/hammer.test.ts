@@ -73,8 +73,8 @@ describe('detectHammer', () => {
     const h = { ...g, open: g.close, close: g.open };
     // Next candle closes above the hammer's close but below its high, like ARTHUR 15m 07:15 (613K vs 615K high).
     const next = { time: h.time + 900, open: h.close, close: (h.close + h.high) / 2, high: h.high, low: h.close * 0.999, volume: 150 };
-    expect(detectHammer([...prior, h, next], cfg)).not.toBeNull();
-    expect(detectHammer([...prior, h, next], { ...cfg, confirmAbove: 'high' })).toBeNull();
+    expect(detectHammer([...prior, h, next], { ...cfg, confirmAbove: 'close' })).not.toBeNull(); // textbook rule
+    expect(detectHammer([...prior, h, next], { ...cfg, confirmAbove: 'high' })).toBeNull(); // strict rule (default)
   });
 
   it('rejects a hammer that is not after a decline', () => {

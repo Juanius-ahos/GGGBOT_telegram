@@ -46,7 +46,7 @@ volume 2.87× average).
 
 ## Token filters (current)
 
-- Market cap **$200K – $3M** (larger caps are dropped from the watchlist), liquidity ≥ $50K, 24h volume ≥ $100K.
+- Market cap **$100K – $3M** (larger caps are dropped from the watchlist), liquidity ≥ $50K, 24h volume ≥ $100K.
 - **No minimum age**: fresh pump.fun graduations qualify immediately (they still must pass every rug check).
 - Young tokens (< ~3.3 days, `youngTokenHours`) are fetched as **5m** candles, which also feed 15m/1h/4h, so a
   5-hour-old token is scanned on 5m right away. Older tokens use 15m candles (no 5m).

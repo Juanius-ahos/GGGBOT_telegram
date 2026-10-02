@@ -123,7 +123,7 @@ export const config = {
       'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
     ],
-    minMarketCapUsd: 200_000,
+    minMarketCapUsd: 100_000,
     /** Skip large caps: only small/mid caps up to this market cap. */
     maxMarketCapUsd: 3_000_000,
     minLiquidityUsd: 50_000,

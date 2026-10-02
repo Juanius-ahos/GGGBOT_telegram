@@ -12,7 +12,7 @@ describe('market filter', () => {
     expect(marketRejection(ok, config.market, NOW)).toBeNull();
   });
   it.each([
-    ['mc', { marketCap: 199_999 }],
+    ['mc', { marketCap: 99_999 }],
     ['mcmax', { marketCap: 3_000_001 }],
     ['liq', { liquidityUsd: 49_000 }],
     ['vol24h', { volume24h: 99_000 }],

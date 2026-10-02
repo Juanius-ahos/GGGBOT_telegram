@@ -74,7 +74,9 @@ export function detectHammer(candles: Candle[], cfg: HammerConfig): HammerResult
   if (hc.volume < cfg.minVolumeVsAvg * avgVolume) return null;
 
   const trigger = candles[t];
-  if (cfg.requireConfirmation && !(trigger.close > hc.high)) return null;
+  // 'close' = textbook confirmation: the next candle closes above the hammer's closing price.
+  const confirmLevel = cfg.confirmAbove === 'close' ? hc.close : hc.high;
+  if (cfg.requireConfirmation && !(trigger.close > confirmLevel)) return null;
 
   const invalidation = hc.low * (1 - cfg.invalidationBufferPct);
   const entry = trigger.close;

@@ -262,7 +262,27 @@ export class LiveTracker {
     })();
   }
 
-  private async setup(t: WatchToken): Promise<SetupResult> {
+  /**
+   * The GT rotation fetched this token's history anyway: if it's waiting for live setup, set it up now from
+   * those candles instead of spending a second GeckoTerminal call later.
+   */
+  async adoptFetched(t: WatchToken, candles: Candle[], baseSec: number): Promise<void> {
+    if (this.stopped || this.pools.has(t.address) || this.unsupported.has(t.address) || this.inSetup.has(t.address)) return;
+    const i = this.setupQueue.findIndex((q) => q.address === t.address);
+    if (i < 0) return;
+    this.setupQueue.splice(i, 1);
+    this.inSetup.add(t.address);
+    try {
+      await this.setup(t, { candles, sec: baseSec });
+    } catch (err) {
+      this.unsupported.set(t.address, `setup error: ${errMsg(err)}`);
+    } finally {
+      this.queued.delete(t.address);
+      this.inSetup.delete(t.address);
+    }
+  }
+
+  private async setup(t: WatchToken, prefetched?: { candles: Candle[]; sec: number }): Promise<SetupResult> {
     const reject = (reason: string): SetupResult => {
       this.unsupported.set(t.address, reason);
       log.info({ token: t.symbol, dex: t.dex_id, reason }, 'not live-trackable; using GT rotation');
@@ -312,7 +332,7 @@ export class LiveTracker {
       return reject('websocket capacity reached');
     }
 
-    const ok = await this.seed(pool);
+    const ok = await this.seed(pool, prefetched);
     if (!ok) {
       this.remove(t.address);
       return reject('on-chain price disagrees with GeckoTerminal (sanity check failed)');
@@ -322,7 +342,7 @@ export class LiveTracker {
   }
 
   /** Loads history from GeckoTerminal and sanity-checks the on-chain price against it. */
-  private async seed(p: Pool): Promise<boolean> {
+  private async seed(p: Pool, prefetched?: { candles: Candle[]; sec: number }): Promise<boolean> {
     if (p.seededAt > 0) {
       // Re-seed: reload balances/price so changes made during a gap aren't booked as one giant swap.
       const keys = [p.layout.vaultA, p.layout.vaultB, ...(p.layout.priceSource !== 'reserves' ? [p.token.pair_address] : [])];
@@ -338,12 +358,14 @@ export class LiveTracker {
         if (raw !== null) p.clPriceAB = raw * 10 ** (p.decA - p.decB);
       }
     }
-    const base = baseIntervalFor(p.token.pair_created_at, config.youngTokenHours);
-    const candles = await geckoterminal.ohlcv(p.token.pair_address, p.token.address, {
-      timeframe: 'minute',
-      aggregate: base.aggregate,
-      limit: config.scan.candleLimit,
-    });
+    const base = prefetched ? { sec: prefetched.sec } : baseIntervalFor(p.token.pair_created_at, config.youngTokenHours);
+    const candles = prefetched
+      ? prefetched.candles
+      : await geckoterminal.ohlcv(p.token.pair_address, p.token.address, {
+          timeframe: 'minute',
+          aggregate: baseIntervalFor(p.token.pair_created_at, config.youngTokenHours).aggregate,
+          limit: config.scan.candleLimit,
+        });
     if (candles.length === 0) return false;
     const chainPrice = this.priceUsd(p);
     const gtPrice = candles[candles.length - 1].close;
@@ -358,7 +380,8 @@ export class LiveTracker {
     p.series.seed(candles);
     p.seededAt = Date.now();
     p.dirty = false;
-    this.onSeed?.(p.token, candles, base.sec);
+    // Prefetched history was already scanned by whoever fetched it.
+    if (!prefetched) this.onSeed?.(p.token, candles, base.sec);
     return true;
   }
 

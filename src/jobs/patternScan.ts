@@ -130,6 +130,8 @@ export async function runPatternScan(
   notifier: Notifier,
   isStopped: () => boolean,
   isLive: (address: string) => boolean = () => false,
+  /** Hand fetched history to the live tracker so a queued token goes live without a second fetch. */
+  adopt: (t: WatchToken, candles: Candle[], baseSec: number) => Promise<void> = async () => undefined,
 ): Promise<void> {
   const started = Date.now();
   const budget = scanBudget();
@@ -144,8 +146,10 @@ export async function runPatternScan(
   for (const t of queue) {
     if (isStopped()) break;
     let byTf: Map<Timeframe, Candle[]>;
+    let fetched: { candles: Candle[]; sec: number };
     try {
-      byTf = await fetchAllTimeframes(t);
+      fetched = await fetchBase(t);
+      byTf = multiTimeframe(fetched.candles, fetched.sec, config.timeframes, config.detectCandles);
     } catch (err) {
       failed++;
       db.markScanned(t.address); // rotate past it either way
@@ -156,6 +160,7 @@ export async function runPatternScan(
     }
     db.markScanned(t.address);
     scanned++;
+    void adopt(t, fetched.candles, fetched.sec).catch((err) => log.warn({ token: t.symbol, err: errMsg(err) }, 'live adopt failed'));
 
     for (const [tf, candles] of byTf) {
       for (const s of findSignals(candles, tf, signalLookback(scannable, budget, tf), config)) {

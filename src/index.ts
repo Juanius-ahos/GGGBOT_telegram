@@ -91,8 +91,11 @@ async function main(): Promise<void> {
     tracker.start();
     syncTracker(); // tokens that already passed rug checks in a previous run
   }
-  // Tokens covered by the live tracker are scanned from its seed fetches; the GT rotation handles the rest.
-  const isLive = (address: string) => tracker?.isCovered(address) ?? false;
+  // Live pools are scanned every minute from chain candles; everything else (including tokens still waiting for
+  // live setup) is scanned by the GT rotation, whose fetch also sets the token up for live tracking.
+  const isLive = (address: string) => tracker?.isLive(address) ?? false;
+  const adopt = (t: Parameters<NonNullable<typeof tracker>['adoptFetched']>[0], candles: Parameters<NonNullable<typeof tracker>['adoptFetched']>[1], sec: number) =>
+    tracker ? tracker.adoptFetched(t, candles, sec) : Promise.resolve();
   if (tracker) {
     tracker.onSeed = (token, base, baseSec) =>
       void scanFetchedHistory(db, token, base, baseSec, notifier).catch((err) => logger.error({ token: token.symbol, err: errMsg(err) }, 'seed scan failed'));
@@ -111,7 +114,7 @@ async function main(): Promise<void> {
     syncTracker();
   }, 0);
   // Give the first discovery a head start so the scan has something to look at.
-  scheduler.add('scan', patternScanIntervalMs, () => runPatternScan(db, notifier, stopped, isLive), 90_000);
+  scheduler.add('scan', patternScanIntervalMs, () => runPatternScan(db, notifier, stopped, isLive, adopt), 90_000);
   if (tracker) scheduler.add('live-scan', config.live.detectIntervalMs, () => runLiveScan(db, tracker, notifier, stopped), 60_000);
   scheduler.add('outcomes', outcomeIntervalMs, () => runOutcomeTracker(db, notifier, stopped), 30_000);
   // Real-time triggers: neckline / hammer-high crosses alert immediately instead of at candle close.

@@ -66,6 +66,17 @@ describe('detectHammer', () => {
     expect(detectHammer([...prior, h, confirm(h, false)], { ...cfg, requireConfirmation: false })).toBeNull(); // last candle isn't a hammer
   });
 
+  it('confirms on a close above the hammer close even if it stays under the high (ARTHUR, 2 Oct)', () => {
+    const prior = downtrend();
+    // Red hammer like ARTHUR 15m 07:00 (O 615K = H 615K, C 602K): body top equals the high.
+    const g = hammerAfter(prior);
+    const h = { ...g, open: g.close, close: g.open };
+    // Next candle closes above the hammer's close but below its high, like ARTHUR 15m 07:15 (613K vs 615K high).
+    const next = { time: h.time + 900, open: h.close, close: (h.close + h.high) / 2, high: h.high, low: h.close * 0.999, volume: 150 };
+    expect(detectHammer([...prior, h, next], cfg)).not.toBeNull();
+    expect(detectHammer([...prior, h, next], { ...cfg, confirmAbove: 'high' })).toBeNull();
+  });
+
   it('rejects a hammer that is not after a decline', () => {
     const flat: Candle[] = Array.from({ length: 30 }, (_, i) => ({ time: i * 900, open: 1, close: 1.001, high: 1.01, low: 0.99, volume: 100 }));
     const h = { time: 30 * 900, open: 1, close: 1.006, high: 1.0065, low: 0.976, volume: 180 };

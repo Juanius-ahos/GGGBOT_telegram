@@ -328,7 +328,7 @@ export function settingsMessage(cfg: AppConfig): string {
     `<b>🔨 Hammer</b>`,
     `• Lower wick ≥ ${cfg.hammer.minLowerWickToBody}× body and ≥ ${p(cfg.hammer.minLowerWickPctOfRange)} of range, upper wick ≤ ${p(cfg.hammer.maxUpperWickPctOfRange)}`,
     `• After a ≥ ${p(cfg.hammer.minPriorDeclinePct)} drop, lowest low of ${cfg.hammer.lowLookback} candles, volume ≥ average`,
-    `• ${cfg.hammer.requireConfirmation ? 'Next candle must close above the hammer high' : 'No confirmation candle required'}`,
+    `• ${cfg.hammer.requireConfirmation ? `Next candle must close above the hammer's ${cfg.hammer.confirmAbove === 'close' ? 'close' : 'high'} (live alert fires earlier if price breaks the hammer high)` : 'No confirmation candle required'}`,
     `• Stop ${p(cfg.hammer.invalidationBufferPct)} under hammer low · Target = ${cfg.hammer.rewardToRisk}× risk`,
     ``,
     `<b>🔔 Alerts</b>`,

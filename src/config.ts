@@ -57,6 +57,8 @@ export interface HammerConfig {
   volumeAvgPeriod: number;
   /** Require the next candle to close above the hammer's high before alerting. */
   requireConfirmation: boolean;
+  /** Confirmation candle must close above the hammer's 'high' (strict) or its closing price ('close', textbook). */
+  confirmAbove: 'high' | 'close';
   invalidationBufferPct: number;
   /** Target = entry + this x (entry - stop). */
   rewardToRisk: number;
@@ -190,6 +192,7 @@ export const config = {
     minVolumeVsAvg: 1.0,
     volumeAvgPeriod: 20,
     requireConfirmation: true,
+    confirmAbove: 'high' as 'high' | 'close',
     invalidationBufferPct: 0.01,
     rewardToRisk: 2,
   } satisfies HammerConfig,

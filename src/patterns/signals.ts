@@ -101,7 +101,9 @@ export function findSignals(
     }
     if (!gotHammer) {
       const r = detectHammer(slice, cfg.hammer);
-      if (r && last.close > r.hammer.high) {
+      // Still holding above the confirmation level (hammer close, or its high in strict mode).
+      const hold = r ? (cfg.hammer.confirmAbove === 'close' ? r.hammer.close : r.hammer.high) : 0;
+      if (r && last.close > hold) {
         out.push(fromHammer(r, tf));
         gotHammer = true;
       }

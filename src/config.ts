@@ -198,6 +198,26 @@ export const config = {
   /** How long an alert is tracked before win/loss is decided, per timeframe. */
   resolutionHours: { '15m': 24, '1h': 72, '4h': 168 } as Record<'15m' | '1h' | '4h', number>,
 
+  /**
+   * Real-time triggers: a double bottom whose two lows are in place (or a fresh hammer) is "armed", and a
+   * watcher checks the live price every few seconds, alerting the moment price crosses the neckline /
+   * hammer high instead of waiting for the candle to close.
+   */
+  setups: {
+    watchIntervalMs: 20_000,
+    /** Price must clear the trigger level by this much (filters ticks that just touch it). */
+    crossBufferPct: 0.003,
+    /**
+     * Double-bottom cross needs the forming candle's volume pace (volume so far / share of candle elapsed)
+     * to beat the average by this multiple. Early in a candle the elapsed share is floored at 25%.
+     */
+    minVolumePace: 1.0,
+    /** On-chain volume misses swaps that net out inside a slot, so live-pool pace is scaled down by this. */
+    onchainPaceFactor: 0.6,
+    /** Send a "forming" alert only while the second low is fresh (at most this many candles past confirmation). */
+    earlyMaxCandlesAfterConfirm: 2,
+  },
+
   live: {
     /** Build candles from on-chain pool updates (websocket) for supported pools. */
     enabled: process.env.LIVE_TRACKING !== '0',

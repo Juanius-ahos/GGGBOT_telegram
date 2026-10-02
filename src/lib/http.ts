@@ -137,7 +137,7 @@ export async function fetchJson<T>(url: string, opts: FetchJsonOptions): Promise
           method: opts.method ?? 'GET',
           headers: {
             accept: 'application/json',
-            'user-agent': 'soleye-bot/1.0',
+            'user-agent': 'ggg-bot/1.0',
             ...(opts.body !== undefined ? { 'content-type': 'application/json' } : {}),
             ...opts.headers,
           },

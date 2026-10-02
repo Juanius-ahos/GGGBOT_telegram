@@ -54,17 +54,40 @@ export interface AlertRow {
   sampled_outcome: Outcome;
   outcome: Outcome;
   outcome_at: number | null;
-  pattern: 'double_bottom' | 'hammer';
+  pattern: 'double_bottom' | 'hammer' | 'db_forming';
   timeframe: '15m' | '1h' | '4h';
   /** Extra confirmation found alongside the pattern (e.g. "hammer at L2"). */
   confluence: string | null;
+  /** close = candle close confirmed, cross = live price crossed the level, forming = early heads-up. */
+  trigger: 'close' | 'cross' | 'forming';
+}
+
+export interface SetupRow {
+  id: number;
+  token_address: string;
+  pattern: 'double_bottom' | 'hammer';
+  timeframe: '15m' | '1h' | '4h';
+  /** L2 candle time (double bottom) or hammer candle time, unix seconds. */
+  key_time: number;
+  /** Neckline (double bottom) or hammer high. */
+  trigger_level: number;
+  invalidation: number;
+  target: number;
+  first_low: number;
+  second_low: number;
+  neckline: number;
+  avg_volume: number;
+  armed_at: number;
+  expires_at: number;
+  status: 'armed' | 'fired' | 'expired' | 'invalidated';
+  early_alert_id: number | null;
 }
 
 export type NewAlert = Pick<
   AlertRow,
   'token_address' | 'symbol' | 'name' | 'pair_address' | 'created_at' | 'price_at_alert' | 'market_cap' | 'liquidity_usd' |
   'first_low' | 'second_low' | 'neckline' | 'breakout_price' | 'breakout_time' | 'invalidation' | 'target' | 'pattern' | 'timeframe'
-> & { confluence?: string | null };
+> & { confluence?: string | null; trigger?: AlertRow['trigger'] };
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS watchlist (
@@ -141,6 +164,28 @@ CREATE TABLE IF NOT EXISTS alert_messages (
   PRIMARY KEY (alert_id, chat_id)
 );
 
+-- Armed setups waiting for a real-time trigger (price crossing a double-bottom neckline / hammer high).
+CREATE TABLE IF NOT EXISTS setups (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_address  TEXT NOT NULL,
+  pattern        TEXT NOT NULL,
+  timeframe      TEXT NOT NULL,
+  key_time       INTEGER NOT NULL,
+  trigger_level  REAL NOT NULL,
+  invalidation   REAL NOT NULL,
+  target         REAL NOT NULL,
+  first_low      REAL NOT NULL,
+  second_low     REAL NOT NULL,
+  neckline       REAL NOT NULL,
+  avg_volume     REAL NOT NULL,
+  armed_at       INTEGER NOT NULL,
+  expires_at     INTEGER NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'armed',
+  early_alert_id INTEGER,
+  UNIQUE (token_address, pattern, timeframe, key_time)
+);
+CREATE INDEX IF NOT EXISTS idx_setups_status ON setups(status, expires_at);
+
 -- Per-chat alert preferences (which patterns / timeframes to receive). Missing row = everything on.
 CREATE TABLE IF NOT EXISTS prefs (
   chat_id    INTEGER PRIMARY KEY,
@@ -175,6 +220,7 @@ export function openDb(file: string) {
   if (!alertCols.has('pattern')) db.exec(`ALTER TABLE alerts ADD COLUMN pattern TEXT NOT NULL DEFAULT 'double_bottom'`);
   if (!alertCols.has('timeframe')) db.exec(`ALTER TABLE alerts ADD COLUMN timeframe TEXT NOT NULL DEFAULT '15m'`);
   if (!alertCols.has('confluence')) db.exec(`ALTER TABLE alerts ADD COLUMN confluence TEXT`);
+  if (!alertCols.has('trigger')) db.exec(`ALTER TABLE alerts ADD COLUMN trigger TEXT NOT NULL DEFAULT 'close'`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_alerts_key ON alerts(token_address, pattern, timeframe, created_at)`);
 
   const now = () => Date.now();
@@ -223,10 +269,19 @@ export function openDb(file: string) {
     insertAlert: db.prepare(`
       INSERT INTO alerts (token_address, symbol, name, pair_address, created_at, price_at_alert, market_cap,
                           liquidity_usd, first_low, second_low, neckline, breakout_price, breakout_time,
-                          invalidation, target, sample_high, sample_low, pattern, timeframe, confluence)
+                          invalidation, target, sample_high, sample_low, pattern, timeframe, confluence, trigger)
       VALUES (@token_address, @symbol, @name, @pair_address, @created_at, @price_at_alert, @market_cap,
               @liquidity_usd, @first_low, @second_low, @neckline, @breakout_price, @breakout_time,
-              @invalidation, @target, @price_at_alert, @price_at_alert, @pattern, @timeframe, @confluence)`),
+              @invalidation, @target, @price_at_alert, @price_at_alert, @pattern, @timeframe, @confluence, @trigger)`),
+    insertSetup: db.prepare(`
+      INSERT OR IGNORE INTO setups (token_address, pattern, timeframe, key_time, trigger_level, invalidation, target,
+                                    first_low, second_low, neckline, avg_volume, armed_at, expires_at)
+      VALUES (@token_address, @pattern, @timeframe, @key_time, @trigger_level, @invalidation, @target,
+              @first_low, @second_low, @neckline, @avg_volume, @armed_at, @expires_at)`),
+    armedSetups: db.prepare(`SELECT * FROM setups WHERE status = 'armed' ORDER BY armed_at`),
+    setSetupStatus: db.prepare(`UPDATE setups SET status = ? WHERE id = ?`),
+    setSetupEarlyAlert: db.prepare(`UPDATE setups SET early_alert_id = ? WHERE id = ?`),
+    pruneSetups: db.prepare(`DELETE FROM setups WHERE status != 'armed' AND armed_at < ?`),
     lastAlertFor: db.prepare(`SELECT MAX(created_at) AS t FROM alerts WHERE token_address = ? AND pattern = ? AND timeframe = ?`),
     statsBy: db.prepare(`
       SELECT pattern, timeframe, COUNT(*) AS total,
@@ -288,8 +343,17 @@ export function openDb(file: string) {
     isSubscribed: (chatId: number) => (stmts.isSubscribed.get(chatId) as { active: number } | undefined)?.active === 1,
 
     insertAlert(a: NewAlert): number {
-      return Number(stmts.insertAlert.run({ confluence: null, ...a }).lastInsertRowid);
+      return Number(stmts.insertAlert.run({ confluence: null, trigger: 'close', ...a }).lastInsertRowid);
     },
+    /** Returns the new setup's id, or null if this exact setup was already armed before. */
+    insertSetup(s: Omit<SetupRow, 'id' | 'status' | 'early_alert_id'>): number | null {
+      const r = stmts.insertSetup.run(s);
+      return r.changes ? Number(r.lastInsertRowid) : null;
+    },
+    armedSetups: () => stmts.armedSetups.all() as SetupRow[],
+    setSetupStatus: (id: number, status: SetupRow['status']) => stmts.setSetupStatus.run(status, id),
+    setSetupEarlyAlert: (id: number, alertId: number) => stmts.setSetupEarlyAlert.run(alertId, id),
+    pruneSetups: (before: number) => stmts.pruneSetups.run(before).changes,
     lastAlertAt: (address: string, pattern: string, timeframe: string) =>
       (stmts.lastAlertFor.get(address, pattern, timeframe) as { t: number | null }).t,
     statsBy: () =>

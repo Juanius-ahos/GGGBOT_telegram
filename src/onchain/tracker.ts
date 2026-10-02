@@ -177,6 +177,18 @@ export class LiveTracker {
     };
   }
 
+  /** Current on-chain USD price for a live pool, or null when not live. */
+  priceNow(address: string): number | null {
+    const p = this.pools.get(address);
+    return p && !p.dirty && p.seededAt > 0 ? this.priceUsd(p) : null;
+  }
+
+  /** Live 15m candles (incl. the forming one) for a live pool, or null. */
+  seriesFor(address: string): CandleSeries | null {
+    const p = this.pools.get(address);
+    return p && !p.dirty && p.seededAt > 0 ? p.series : null;
+  }
+
   livePools(): { token: WatchToken; series: CandleSeries }[] {
     return [...this.pools.values()].filter((p) => !p.dirty && p.seededAt > 0).map((p) => ({ token: p.token, series: p.series }));
   }

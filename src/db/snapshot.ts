@@ -13,6 +13,7 @@ const log = logger.child({ mod: 'snapshot' });
  * gzipped (~100 KB) and stored as one row in a free Postgres (e.g. Neon). Restored on boot when the
  * local file is missing. Each save opens a short connection so a scale-to-zero database can sleep.
  */
+// Name kept from the original project name: renaming it would orphan existing snapshots.
 const TABLE = 'soleye_snapshots';
 const KEEP = 3;
 

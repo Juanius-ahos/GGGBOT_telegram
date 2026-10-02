@@ -1,4 +1,4 @@
-# SOLEYE — free Solana pattern alert bot
+# GGG_BOT — free Solana pattern alert bot
 
 Scans Solana tokens, filters out likely rugs, detects **double-bottom breakouts** and **confirmed hammer candles** on
 **15m, 1h and 4h** charts, and sends Telegram alerts.
@@ -25,6 +25,24 @@ Why: GeckoTerminal (the only free candle API) allows ~5 calls/min, i.e. each tok
 - **Because of that, live candles only pre-screen.** The breakout-volume threshold is relaxed to 60% for the pre-screen; every hit is then re-checked on GeckoTerminal candles with the exact rules before any alert is sent. Alerts are never based on live candles alone.
 - **Re-sync every 2h** from GeckoTerminal (and immediately after any websocket gap). Each re-sync measures live vs GT accuracy (close/high/low error, % of volume captured), shown in `/status`.
 - Quote tokens (SOL, USDC, meme/stock quotes) are priced in USD from DexScreener every minute.
+
+## Live triggers and early alerts (`src/jobs/setups.ts`)
+
+Waiting for a candle to close makes breakout alerts late (a 15m candle can run 10%+ past the neckline before it
+closes). So every scan also **arms setups**:
+
+- **Double bottom with both lows in place, neckline not broken yet** → armed. A watcher checks the live price every
+  20 s (on-chain for live pools, DexScreener for the rest) and fires **⚡ DOUBLE BOTTOM BREAKOUT · LIVE** the moment
+  price clears the neckline (+0.3%), provided the forming candle's volume pace beats the average.
+- **Hammer on the last closed candle** → armed for the next candle; fires when price breaks the hammer's high.
+- **📍 DOUBLE BOTTOM FORMING** (early heads-up, switchable in My alerts) is sent when a setup arms while its second low
+  is fresh. When that setup later breaks out, the bot replies under the early alert.
+- Setups expire (double bottom: after `maxCandlesAfterSecondLow` candles; hammer: after the next candle) or are dropped
+  if price hits the stop first. Close-based detection still runs as a fallback; cooldowns stop duplicates.
+
+Real example (bukangi, 2 Oct 2026, 15m): lows 307K/314K MC, neckline 414K. Old close-based alert: **467K**.
+Replayed on the real candles: early alert at **329K** (05:15 UTC), live neckline cross at **~415K** (08:45 candle,
+volume 2.87× average).
 
 ## Timeframes
 

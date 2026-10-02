@@ -60,9 +60,14 @@ const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length));
 export const PATTERN_TITLE: Record<string, string> = {
   double_bottom: '🟢 <b>DOUBLE BOTTOM BREAKOUT</b>',
   hammer: '🔨 <b>HAMMER REVERSAL</b>',
+  db_forming: '📍 <b>DOUBLE BOTTOM FORMING</b>',
 };
-export const PATTERN_ICON: Record<string, string> = { double_bottom: 'Ⓦ', hammer: '🔨' };
-const PATTERN_SHORT: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer' };
+const CROSS_TITLE: Record<string, string> = {
+  double_bottom: '⚡ <b>DOUBLE BOTTOM BREAKOUT · LIVE</b>',
+  hammer: '⚡ <b>HAMMER REVERSAL · LIVE</b>',
+};
+export const PATTERN_ICON: Record<string, string> = { double_bottom: 'Ⓦ', hammer: '🔨', db_forming: '📍' };
+const PATTERN_SHORT: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'DB forming' };
 
 /** Photo caption for a new alert (Telegram caps captions at 1024 chars). */
 export function alertCaption(a: AlertCore, s: Signal): string {
@@ -71,24 +76,46 @@ export function alertCaption(a: AlertCore, s: Signal): string {
   const up = ((a.target - ref) / ref) * 100;
   const down = ((a.invalidation - ref) / ref) * 100;
   const rr = Math.abs(down) > 0 ? up / Math.abs(down) : 0;
+  const trigger = s.trigger ?? 'close';
+  const forming = trigger === 'forming';
+  const toTrigger = ((a.neckline - ref) / ref) * 100;
   const table = [
-    `${pad('Entry', 8)}${pad(price(ref), 16)}`,
+    `${pad(forming ? 'Now' : 'Entry', 8)}${pad(price(ref), 16)}`,
+    forming ? `${pad('Trigger', 8)}${pad(price(a.neckline), 16)}${pct(toTrigger)}` : null,
     `${pad('Target', 8)}${pad(price(a.target), 16)}${pct(up)}`,
     `${pad('Stop', 8)}${pad(price(a.invalidation), 16)}${pct(down)}`,
     `${pad('R:R', 8)}${rr.toFixed(2)}`,
-  ].join('\n');
+  ]
+    .filter((l) => l !== null)
+    .join('\n');
+  const hammerBits = s.hammer
+    ? `hammer wick ${Number.isFinite(s.hammer.lowerWickToBody) ? s.hammer.lowerWickToBody.toFixed(1) + '×' : '∞×'} body · after ${pct(-s.hammer.priorDeclinePct * 100)} drop`
+    : '';
   const detail =
-    s.pattern === 'hammer' && s.hammer
-      ? `<i>${s.timeframe} · hammer wick ${Number.isFinite(s.hammer.lowerWickToBody) ? s.hammer.lowerWickToBody.toFixed(1) + '×' : '∞×'} body · after ${pct(-s.hammer.priorDeclinePct * 100)} drop · confirmed by next close</i>`
+    s.pattern === 'hammer'
+      ? `<i>${s.timeframe} · ${hammerBits}${hammerBits ? ' · ' : ''}${trigger === 'cross' ? 'live break of the hammer high' : 'confirmed by next close'}</i>`
       : `<i>${s.timeframe} · L1 ${price(a.first_low)} · L2 ${price(a.second_low)} · Neck ${price(a.neckline)}</i>`;
+  const status =
+    trigger === 'cross'
+      ? s.pattern === 'hammer'
+        ? `⏱ <i>Price just broke the hammer's high (candle still open).</i>`
+        : `⏱ <i>Price just crossed the neckline (candle still open).</i>`
+      : forming
+        ? `⏳ <i>Not confirmed yet: both lows are in. I'll send ⚡ the moment price breaks the neckline (${pct(toTrigger)} from here).</i>`
+        : null;
+  const volLine = forming
+    ? `💰 MC <b>${usd(a.market_cap)}</b>   💧 Liq <b>${usd(a.liquidity_usd)}</b>`
+    : `💰 MC <b>${usd(a.market_cap)}</b>   💧 Liq <b>${usd(a.liquidity_usd)}</b>   📊 Vol <b>${volRatio.toFixed(1)}×</b> ${trigger === 'cross' && s.pattern === 'double_bottom' ? 'avg pace' : 'avg'}`;
+  const title = trigger === 'cross' ? CROSS_TITLE[s.pattern] ?? PATTERN_TITLE[s.pattern] : PATTERN_TITLE[s.pattern];
   return [
-    `${PATTERN_TITLE[s.pattern]} · <b>${s.timeframe}</b>`,
+    `${title} · <b>${s.timeframe}</b>`,
     ``,
     `<b>$${esc(a.symbol)}</b> · ${esc(a.name.slice(0, 40))}`,
     `<code>${a.token_address}</code>`,
     ``,
-    `💰 MC <b>${usd(a.market_cap)}</b>   💧 Liq <b>${usd(a.liquidity_usd)}</b>   📊 Vol <b>${volRatio.toFixed(1)}×</b> avg`,
+    volLine,
     s.hammerAtSecondLow ? `🔨 <b>Second low printed a hammer</b> (extra confirmation)` : null,
+    status,
     ``,
     `<pre>${esc(table)}</pre>`,
     detail,
@@ -135,17 +162,20 @@ export const menuKeyboard: ReplyKeyboard = {
   is_persistent: true,
 };
 
-export const PATTERNS = ['double_bottom', 'hammer'] as const;
-export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer' };
+export const PATTERNS = ['double_bottom', 'hammer', 'db_forming'] as const;
+export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming' };
 
 export function welcomeMessage(cfg: AppConfig): string {
   return [
-    `👁 <b>Welcome to SOLEYE</b>`,
+    `👁 <b>Welcome to GGG_BOT</b>`,
     ``,
     `You're subscribed. I watch Solana tokens around the clock and alert you the moment a setup confirms:`,
     ``,
-    `Ⓦ <b>Double bottom breakout</b> — two matching lows, then a close above the neckline on strong volume`,
-    `🔨 <b>Hammer reversal</b> — a long-wick bottom candle after a drop, confirmed by the next close`,
+    `Ⓦ <b>Double bottom breakout</b> — two matching lows, then a break of the neckline on strong volume`,
+    `🔨 <b>Hammer reversal</b> — a long-wick bottom candle after a drop, then a break of its high`,
+    `📍 <b>Early heads-up</b> — both lows of a double bottom are in, before the breakout`,
+    ``,
+    `⚡ Breakouts are caught <b>live</b>: the alert fires the moment price crosses the level, not at the candle close.`,
     ``,
     `⏱ On <b>${cfg.timeframes.join(', ')}</b> charts.`,
     ``,
@@ -161,7 +191,7 @@ export function welcomeMessage(cfg: AppConfig): string {
 
 export function helpMessage(): string {
   return [
-    `❓ <b>How SOLEYE works</b>`,
+    `❓ <b>How GGG_BOT works</b>`,
     ``,
     `<b>Menu</b>`,
     `${MENU.myAlerts} — pick patterns + timeframes, manage muted tokens`,
@@ -206,7 +236,7 @@ export function myAlertsPanel(v: PrefsView, allTimeframes: readonly string[]): {
     .filter((l) => l !== '')
     .join('\n');
   const keyboard: InlineKeyboard = [
-    PATTERNS.map((p) => ({ text: `${on(v.patterns.includes(p))} ${PATTERN_ICON[p]} ${PATTERN_NAME[p]}`, callback_data: `tp:${p}` })),
+    ...PATTERNS.map((p) => [{ text: `${on(v.patterns.includes(p))} ${PATTERN_ICON[p]} ${PATTERN_NAME[p]}`, callback_data: `tp:${p}` }]),
     allTimeframes.map((tf) => ({ text: `${on(v.timeframes.includes(tf))} ${tf}`, callback_data: `tt:${tf}` })),
     ...v.mutes.slice(0, 6).map((m) => [{ text: `🔔 Unmute $${m.symbol}`, callback_data: `um:${m.token_address}` }]),
     [{ text: '✅ Everything on', callback_data: 'all:on' }],
@@ -330,7 +360,7 @@ export interface StatusData {
 export function statusMessage(s: StatusData): string {
   const healthy = !!s.lastDiscovery && Date.now() - s.lastDiscovery < 25 * 60_000 && (!s.live || s.live.wsUp);
   return [
-    `${healthy ? '🟢' : '🟠'} <b>SOLEYE ${healthy ? 'is running' : 'needs attention'}</b> · up ${duration(s.uptimeMs)}`,
+    `${healthy ? '🟢' : '🟠'} <b>GGG_BOT ${healthy ? 'is running' : 'needs attention'}</b> · up ${duration(s.uptimeMs)}`,
     `${s.subscribed ? '🔔 You are subscribed' : '🔕 You are not subscribed (/start)'} · ${s.subscribers} subscriber${s.subscribers === 1 ? '' : 's'}`,
     s.subscribed ? `Your alerts: ${esc(s.myAlerts)}` : '',
     ``,

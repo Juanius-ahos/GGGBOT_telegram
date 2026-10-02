@@ -4,17 +4,23 @@ import { detectHammer, isHammerShape, type HammerResult } from './hammer.js';
 import type { Timeframe } from './timeframes.js';
 import type { Candle, DoubleBottomResult } from './types.js';
 
-export type PatternKind = 'double_bottom' | 'hammer';
+/** `db_forming` = early heads-up: both lows of a double bottom are in, neckline not broken yet. */
+export type PatternKind = 'double_bottom' | 'hammer' | 'db_forming';
+/** close = confirmed on a candle close; cross = live price crossed the level mid-candle; forming = not triggered yet. */
+export type TriggerKind = 'close' | 'cross' | 'forming';
 
 export const PATTERN_LABEL: Record<PatternKind, string> = {
   double_bottom: 'Double bottom breakout',
   hammer: 'Hammer reversal',
+  db_forming: 'Double bottom forming',
 };
 
 /** One tradable signal, pattern-agnostic, so alerting/charting/tracking treat both patterns the same way. */
 export interface Signal {
   pattern: PatternKind;
   timeframe: Timeframe;
+  /** Defaults to 'close' when absent. */
+  trigger?: TriggerKind;
   /** Candle that fired the signal (breakout candle / hammer confirmation candle). */
   triggerIndex: number;
   triggerTime: number;

@@ -12,7 +12,7 @@ export interface DexPair {
   baseToken: { address: string; name: string; symbol: string };
   quoteToken: { address: string; name: string; symbol: string };
   priceUsd?: string;
-  volume?: { h24?: number };
+  volume?: { m5?: number; h1?: number; h6?: number; h24?: number };
   liquidity?: { usd?: number };
   fdv?: number;
   marketCap?: number;

@@ -40,8 +40,8 @@ describe('My alerts preferences', () => {
 
     await tap(1, 'tp:hammer'); // chat 1: hammer off
     await tap(1, 'tt:15m'); // chat 1: 15m off
-    expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom');
-    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom'], timeframes: ['1h', '4h'] });
+    expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom, Early: DB forming');
+    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'db_forming'], timeframes: ['1h', '4h'] });
 
     sent.length = 0;
     await bot.alert(alertPayload('hammer', '1h'));
@@ -54,7 +54,7 @@ describe('My alerts preferences', () => {
     expect(sent.map((s) => s.chatId).sort()).toEqual([1, 2]);
 
     await tap(1, 'all:on');
-    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'hammer'], timeframes: ['15m', '1h', '4h'] });
+    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'hammer', 'db_forming'], timeframes: ['15m', '1h', '4h'] });
   });
 
   it('warns when everything is switched off', async () => {
@@ -62,6 +62,7 @@ describe('My alerts preferences', () => {
     await say(1, '/start');
     await tap(1, 'tp:double_bottom');
     await tap(1, 'tp:hammer');
+    await tap(1, 'tp:db_forming');
     expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain("You'll get no alerts");
   });
 

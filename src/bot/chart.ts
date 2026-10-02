@@ -164,14 +164,16 @@ export function buildChartSvg(candles: Candle[], s: Signal, meta: ChartMeta): st
   }
   // Trigger marker
   const by = y(candles[s.triggerIndex].high);
-  out.push(`<text x="${bx}" y="${by - 26}" ${FONT} font-size="13" font-weight="700" fill="${C.w}" text-anchor="middle">${db ? 'BREAKOUT' : 'CONFIRMED'}</text>`);
+  const trig = s.trigger ?? 'close';
+  const triggerLabel = trig === 'forming' ? 'NOW' : trig === 'cross' ? (db ? 'BREAKING NOW' : 'BREAKING HIGH') : db ? 'BREAKOUT' : 'CONFIRMED';
+  out.push(`<text x="${bx}" y="${by - 26}" ${FONT} font-size="13" font-weight="700" fill="${C.w}" text-anchor="middle">${triggerLabel}</text>`);
   out.push(`<path d="M ${bx - 7} ${by - 20} L ${bx + 7} ${by - 20} L ${bx} ${by - 8} Z" fill="${C.w}"/>`);
 
   // Time axis: first and last candle times (UTC)
   const fmtT = (sec: number) => new Date(sec * 1000).toISOString().slice(5, 16).replace('T', ' ');
   out.push(`<text x="${PAD_L}" y="${VOL_BOTTOM + 24}" ${FONT} font-size="13" fill="${C.axis}">${fmtT(view[0].time)} UTC</text>`);
   out.push(`<text x="${PLOT_R}" y="${VOL_BOTTOM + 24}" ${FONT} font-size="13" fill="${C.axis}" text-anchor="end">${fmtT(view[n - 1].time)} UTC</text>`);
-  out.push(`<text x="${W - 24}" y="${H - 14}" ${FONT} font-size="12" fill="${C.muted}" text-anchor="end">SOLEYE · not financial advice</text>`);
+  out.push(`<text x="${W - 24}" y="${H - 14}" ${FONT} font-size="12" fill="${C.muted}" text-anchor="end">GGG_BOT · not financial advice</text>`);
   out.push(`</svg>`);
   return out.join('');
 }

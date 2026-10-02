@@ -8,6 +8,7 @@ import { multiTimeframe, TIMEFRAME_SECONDS, type Timeframe } from '../patterns/t
 import type { Candle } from '../patterns/types.js';
 import { fetchBestPairs } from '../sources/dexscreener.js';
 import { geckoterminal } from '../sources/geckoterminal.js';
+import { armFromCandles } from './setups.js';
 
 const log = logger.child({ job: 'scan' });
 
@@ -31,6 +32,7 @@ export async function scanFetchedHistory(db: Db, t: WatchToken, base15m: Candle[
       found++;
       await maybeAlert(db, t, s, candles, notifier, 'seed-scan');
     }
+    await armFromCandles(db, t, tf, candles, notifier);
   }
   return found;
 }
@@ -52,18 +54,20 @@ export function signalLookback(scannable: number, budget: number, tf: Timeframe 
   return Math.min(config.scan.maxBreakoutLookbackCandles, Math.max(config.scan.breakoutLookbackCandles, needed));
 }
 
-/** Sends an alert unless this token already alerted for the same pattern + timeframe within the cooldown. */
-export async function maybeAlert(db: Db, t: WatchToken, s: Signal, candles: Candle[], notifier: Notifier, via: string): Promise<boolean> {
+/**
+ * Sends an alert unless this token already alerted for the same pattern + timeframe within the cooldown.
+ * Returns the new alert's id, or null if nothing was sent.
+ */
+export async function maybeAlert(db: Db, t: WatchToken, s: Signal, candles: Candle[], notifier: Notifier, via: string): Promise<number | null> {
   const last = db.lastAlertAt(t.address, s.pattern, s.timeframe);
   if (last && Date.now() - last < config.alerts.cooldownHours * 3_600_000) {
     log.debug({ token: t.symbol, pattern: s.pattern, tf: s.timeframe, via }, 'signal found but in cooldown');
-    return false;
+    return null;
   }
-  await alertToken(db, t, s, candles, notifier, via);
-  return true;
+  return alertToken(db, t, s, candles, notifier, via);
 }
 
-async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], notifier: Notifier, via: string): Promise<void> {
+async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], notifier: Notifier, via: string): Promise<number | null> {
   // Fresh price/MC at alert time; fall back to the signal candle's close if DexScreener is unavailable.
   let priceNow = s.entry;
   let mc = t.market_cap;
@@ -80,14 +84,14 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
   }
   if (mc < config.market.minMarketCapUsd) {
     log.info({ token: t.symbol, mc }, 'signal found but MC fell below minimum; skipped');
-    return;
+    return null;
   }
   if (priceNow <= s.invalidation) {
     log.info({ token: t.symbol, pattern: s.pattern, tf: s.timeframe }, 'signal found but price already below stop; skipped');
-    return;
+    return null;
   }
 
-  const row: NewAlert & { confluence: string | null } = {
+  const row: NewAlert & { confluence: string | null; trigger: 'close' | 'cross' | 'forming' } = {
     token_address: t.address,
     symbol: t.symbol,
     name: t.name,
@@ -106,11 +110,13 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
     pattern: s.pattern,
     timeframe: s.timeframe,
     confluence: s.hammerAtSecondLow ? 'hammer at L2' : null,
+    trigger: s.trigger ?? 'close',
   };
   const id = db.insertAlert(row);
   db.setKv('alert:last', String(row.created_at));
   const delivered = await notifier.alert({ alertId: id, row, signal: s, candles });
   log.info({ id, token: t.symbol, address: t.address, pattern: s.pattern, tf: s.timeframe, target: s.target, stop: s.invalidation, delivered, via }, 'ALERT sent');
+  return id;
 }
 
 /**
@@ -159,6 +165,7 @@ export async function runPatternScan(
           log.error({ token: t.symbol, err: errMsg(err) }, 'alert failed');
         }
       }
+      await armFromCandles(db, t, tf, candles, notifier).catch((err) => log.error({ token: t.symbol, err: errMsg(err) }, 'arming failed'));
     }
   }
 

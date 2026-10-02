@@ -7,6 +7,7 @@ import type { LiveTracker } from '../onchain/tracker.js';
 import { findSignals } from '../patterns/signals.js';
 import { multiTimeframe, TIMEFRAME_SECONDS } from '../patterns/timeframes.js';
 import { fetchAllTimeframes, maybeAlert } from './patternScan.js';
+import { armFromCandles } from './setups.js';
 
 const log = logger.child({ job: 'live-scan' });
 
@@ -39,6 +40,8 @@ export async function runLiveScan(db: Db, tracker: LiveTracker, notifier: Notifi
     if (isStopped()) break;
     const byTf = multiTimeframe(series.all(), config.timeframes, config.detectCandles, now);
     for (const tf of config.timeframes) {
+      // New lows / hammers on live candles arm real-time triggers (setups are de-duplicated).
+      await armFromCandles(db, token, tf, byTf.get(tf)!, notifier).catch((err) => log.error({ token: token.symbol, err: errMsg(err) }, 'arming failed'));
       for (const pre of findSignals(byTf.get(tf)!, tf, config.scan.breakoutLookbackCandles, preCfg)) {
         const key = `${token.address}:${pre.pattern}:${tf}`;
         if (handled.get(key) === pre.triggerTime) continue;

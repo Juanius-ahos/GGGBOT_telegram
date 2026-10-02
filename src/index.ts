@@ -11,6 +11,7 @@ import { Scheduler } from './jobs/scheduler.js';
 import { PumpPortalStream } from './sources/pumpportal.js';
 import { LiveTracker } from './onchain/tracker.js';
 import { runLiveScan } from './jobs/liveScan.js';
+import { runSetupWatcher } from './jobs/setups.js';
 import { restoreIfMissing, SnapshotSaver } from './db/snapshot.js';
 import { startHealthServer, startSelfPing } from './health.js';
 import { limiters } from './sources/limiters.js';
@@ -53,7 +54,7 @@ async function main(): Promise<void> {
   // Only the hosted instance uploads; a dev copy with the same DATABASE_URL must never overwrite live state.
   const saver = config.hosting.databaseUrl && config.hosting.snapshotUpload ? new SnapshotSaver(db, config.hosting.databaseUrl, config.hosting.snapshotMinutes * 60_000) : null;
   saver?.start();
-  logger.info({ db: config.dbPath, rpc: config.rpcUrl.replace(/api[-_]?key=[^&]+/i, 'api-key=***'), gtRpm: config.rateLimits.geckoterminal, scanBudget: scanBudget(), dryRun }, 'starting soleye');
+  logger.info({ db: config.dbPath, rpc: config.rpcUrl.replace(/api[-_]?key=[^&]+/i, 'api-key=***'), gtRpm: config.rateLimits.geckoterminal, scanBudget: scanBudget(), dryRun }, 'starting GGG_BOT');
 
   let bot: Bot | null = null;
   let notifier: Notifier;
@@ -113,6 +114,11 @@ async function main(): Promise<void> {
   scheduler.add('scan', patternScanIntervalMs, () => runPatternScan(db, notifier, stopped, isLive), 90_000);
   if (tracker) scheduler.add('live-scan', config.live.detectIntervalMs, () => runLiveScan(db, tracker, notifier, stopped), 60_000);
   scheduler.add('outcomes', outcomeIntervalMs, () => runOutcomeTracker(db, notifier, stopped), 30_000);
+  // Real-time triggers: neckline / hammer-high crosses alert immediately instead of at candle close.
+  scheduler.add('setups', config.setups.watchIntervalMs, async () => {
+    await runSetupWatcher(db, tracker, notifier, stopped);
+    db.pruneSetups(Date.now() - 7 * 86_400_000);
+  }, 20_000);
 
   // Web port + keep-awake for hosts that sleep idle web services (Render sets PORT and RENDER_EXTERNAL_URL).
   healthStatus = () => ({

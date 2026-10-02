@@ -26,10 +26,9 @@ function score(s: Signal, candles: Candle[]): Outcome {
 
 async function run(pool: string, mint: string, label: string): Promise<void> {
   const base = await geckoterminal.ohlcv(pool, mint, { timeframe: 'minute', aggregate: 15, limit: 1000 });
-  const byTf = multiTimeframe(base, config.timeframes, { '15m': 1000, '1h': 1000, '4h': 1000 });
+  const byTf = multiTimeframe(base, 900, config.timeframes, { '5m': 1000, '15m': 1000, '1h': 1000, '4h': 1000 });
   const lines: string[] = [];
-  for (const tf of config.timeframes) {
-    const all = byTf.get(tf)!;
+  for (const [tf, all] of byTf) {
     const seen = new Set<string>();
     for (let end = 30; end <= all.length; end++) {
       const window = all.slice(Math.max(0, end - config.detectCandles[tf]), end);

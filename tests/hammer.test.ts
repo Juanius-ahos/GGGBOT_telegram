@@ -111,7 +111,8 @@ describe('timeframe aggregation', () => {
     ]);
   });
   it('drops a partial first bucket and unfinished buckets', () => {
-    const m = multiTimeframe(base.slice(1), ['15m', '1h'], { '15m': 200, '1h': 200, '4h': 200 }, 39600 + 3599);
+    const m = multiTimeframe(base.slice(1), 900, ['5m', '15m', '1h'], { '5m': 200, '15m': 200, '1h': 200, '4h': 200 }, 39600 + 3599);
+    expect(m.has('5m')).toBe(false); // finer than the 15m base: not available
     expect(m.get('1h')).toEqual([]); // 10:00 bucket partial (starts mid-hour), 11:00 bucket not closed yet
     expect(m.get('15m')!.length).toBe(6);
   });

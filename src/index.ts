@@ -94,8 +94,8 @@ async function main(): Promise<void> {
   // Tokens covered by the live tracker are scanned from its seed fetches; the GT rotation handles the rest.
   const isLive = (address: string) => tracker?.isCovered(address) ?? false;
   if (tracker) {
-    tracker.onSeed = (token, base15m) =>
-      void scanFetchedHistory(db, token, base15m, notifier).catch((err) => logger.error({ token: token.symbol, err: errMsg(err) }, 'seed scan failed'));
+    tracker.onSeed = (token, base, baseSec) =>
+      void scanFetchedHistory(db, token, base, baseSec, notifier).catch((err) => logger.error({ token: token.symbol, err: errMsg(err) }, 'seed scan failed'));
   }
   bot?.setLiveStats(() => {
     if (!tracker) return null;

@@ -44,6 +44,14 @@ Real example (bukangi, 2 Oct 2026, 15m): lows 307K/314K MC, neckline 414K. Old c
 Replayed on the real candles: early alert at **329K** (05:15 UTC), live neckline cross at **~415K** (08:45 candle,
 volume 2.87× average).
 
+## Token filters (current)
+
+- Market cap **$200K – $3M** (larger caps are dropped from the watchlist), liquidity ≥ $50K, 24h volume ≥ $100K.
+- **No minimum age**: fresh pump.fun graduations qualify immediately (they still must pass every rug check).
+- Young tokens (< ~3.3 days, `youngTokenHours`) are fetched as **5m** candles, which also feed 15m/1h/4h, so a
+  5-hour-old token is scanned on 5m right away. Older tokens use 15m candles (no 5m).
+  Real example: HOTBOT (5h old) passes market + rug filters; 5m double bottom found at 10:35 UTC.
+
 ## Timeframes
 
 One GeckoTerminal call returns up to 1000 × 15m candles (~10 days). 1h and 4h candles are built from those

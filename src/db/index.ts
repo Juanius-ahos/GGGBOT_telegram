@@ -55,7 +55,7 @@ export interface AlertRow {
   outcome: Outcome;
   outcome_at: number | null;
   pattern: 'double_bottom' | 'hammer' | 'db_forming';
-  timeframe: '15m' | '1h' | '4h';
+  timeframe: '5m' | '15m' | '1h' | '4h';
   /** Extra confirmation found alongside the pattern (e.g. "hammer at L2"). */
   confluence: string | null;
   /** close = candle close confirmed, cross = live price crossed the level, forming = early heads-up. */
@@ -66,7 +66,7 @@ export interface SetupRow {
   id: number;
   token_address: string;
   pattern: 'double_bottom' | 'hammer';
-  timeframe: '15m' | '1h' | '4h';
+  timeframe: '5m' | '15m' | '1h' | '4h';
   /** L2 candle time (double bottom) or hammer candle time, unix seconds. */
   key_time: number;
   /** Neckline (double bottom) or hammer high. */

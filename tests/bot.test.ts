@@ -19,7 +19,7 @@ function harness() {
   return { db, bot, sent, tap, say };
 }
 
-const alertPayload = (pattern: 'double_bottom' | 'hammer', timeframe: '15m' | '1h' | '4h') =>
+const alertPayload = (pattern: 'double_bottom' | 'hammer', timeframe: '5m' | '15m' | '1h' | '4h') =>
   ({
     alertId: 1,
     row: { token_address: 'TOKEN', symbol: 'T', name: 'T', pair_address: 'PAIR', price_at_alert: 1, market_cap: 1, liquidity_usd: 1, first_low: 1, second_low: 1, neckline: 1, breakout_price: 1, invalidation: 0.9, target: 1.2, pattern, timeframe },
@@ -41,7 +41,7 @@ describe('My alerts preferences', () => {
     await tap(1, 'tp:hammer'); // chat 1: hammer off
     await tap(1, 'tt:15m'); // chat 1: 15m off
     expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom, Early: DB forming');
-    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'db_forming'], timeframes: ['1h', '4h'] });
+    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'db_forming'], timeframes: ['5m', '1h', '4h'] });
 
     sent.length = 0;
     await bot.alert(alertPayload('hammer', '1h'));
@@ -54,7 +54,7 @@ describe('My alerts preferences', () => {
     expect(sent.map((s) => s.chatId).sort()).toEqual([1, 2]);
 
     await tap(1, 'all:on');
-    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'hammer', 'db_forming'], timeframes: ['15m', '1h', '4h'] });
+    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'hammer', 'db_forming'], timeframes: ['5m', '15m', '1h', '4h'] });
   });
 
   it('warns when everything is switched off', async () => {

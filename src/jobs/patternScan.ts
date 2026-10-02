@@ -4,7 +4,7 @@ import type { Db, NewAlert, WatchToken } from '../db/index.js';
 import { errMsg, HttpError } from '../lib/http.js';
 import { logger } from '../logger.js';
 import { findSignals, type Signal } from '../patterns/signals.js';
-import { multiTimeframe, TIMEFRAME_SECONDS, type Timeframe } from '../patterns/timeframes.js';
+import { baseIntervalFor, multiTimeframe, TIMEFRAME_SECONDS, type Timeframe } from '../patterns/timeframes.js';
 import type { Candle } from '../patterns/types.js';
 import { fetchBestPairs } from '../sources/dexscreener.js';
 import { geckoterminal } from '../sources/geckoterminal.js';
@@ -12,22 +12,24 @@ import { armFromCandles } from './setups.js';
 
 const log = logger.child({ job: 'scan' });
 
-/** One GeckoTerminal call: ~10 days of 15m candles, rolled up into every configured timeframe. */
-export async function fetchAllTimeframes(t: Pick<WatchToken, 'pair_address' | 'address'>): Promise<Map<Timeframe, Candle[]>> {
-  const base = await geckoterminal.ohlcv(t.pair_address, t.address, {
-    timeframe: config.scan.timeframe,
-    aggregate: config.scan.aggregate,
-    limit: config.scan.candleLimit,
-  });
-  return multiTimeframe(base, config.timeframes, config.detectCandles);
+/** Fetch base candles for a token: 5m while young, 15m after (one GeckoTerminal call). */
+export async function fetchBase(t: Pick<WatchToken, 'pair_address' | 'address' | 'pair_created_at'>): Promise<{ candles: Candle[]; sec: number }> {
+  const b = baseIntervalFor(t.pair_created_at, config.youngTokenHours);
+  const candles = await geckoterminal.ohlcv(t.pair_address, t.address, { timeframe: 'minute', aggregate: b.aggregate, limit: config.scan.candleLimit });
+  return { candles, sec: b.sec };
+}
+
+/** One GeckoTerminal call, rolled up into every timeframe the token's history supports. */
+export async function fetchAllTimeframes(t: Pick<WatchToken, 'pair_address' | 'address' | 'pair_created_at'>): Promise<Map<Timeframe, Candle[]>> {
+  const { candles, sec } = await fetchBase(t);
+  return multiTimeframe(candles, sec, config.timeframes, config.detectCandles);
 }
 
 /** Scan GeckoTerminal history that was fetched anyway (live-tracker seed / re-sync) on every timeframe. */
-export async function scanFetchedHistory(db: Db, t: WatchToken, base15m: Candle[], notifier: Notifier): Promise<number> {
-  const byTf = multiTimeframe(base15m, config.timeframes, config.detectCandles);
+export async function scanFetchedHistory(db: Db, t: WatchToken, base: Candle[], baseSec: number, notifier: Notifier): Promise<number> {
+  const byTf = multiTimeframe(base, baseSec, config.timeframes, config.detectCandles);
   let found = 0;
-  for (const tf of config.timeframes) {
-    const candles = byTf.get(tf)!;
+  for (const [tf, candles] of byTf) {
     for (const s of findSignals(candles, tf, config.scan.breakoutLookbackCandles, config)) {
       found++;
       await maybeAlert(db, t, s, candles, notifier, 'seed-scan');
@@ -155,8 +157,7 @@ export async function runPatternScan(
     db.markScanned(t.address);
     scanned++;
 
-    for (const tf of config.timeframes) {
-      const candles = byTf.get(tf)!;
+    for (const [tf, candles] of byTf) {
       for (const s of findSignals(candles, tf, signalLookback(scannable, budget, tf), config)) {
         found++;
         try {

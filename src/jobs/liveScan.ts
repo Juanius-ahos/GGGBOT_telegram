@@ -38,11 +38,11 @@ export async function runLiveScan(db: Db, tracker: LiveTracker, notifier: Notifi
 
   for (const { token, series } of pools) {
     if (isStopped()) break;
-    const byTf = multiTimeframe(series.all(), config.timeframes, config.detectCandles, now);
-    for (const tf of config.timeframes) {
+    const byTf = multiTimeframe(series.all(), series.intervalSec, config.timeframes, config.detectCandles, now);
+    for (const [tf, liveCandles] of byTf) {
       // New lows / hammers on live candles arm real-time triggers (setups are de-duplicated).
-      await armFromCandles(db, token, tf, byTf.get(tf)!, notifier).catch((err) => log.error({ token: token.symbol, err: errMsg(err) }, 'arming failed'));
-      for (const pre of findSignals(byTf.get(tf)!, tf, config.scan.breakoutLookbackCandles, preCfg)) {
+      await armFromCandles(db, token, tf, liveCandles, notifier).catch((err) => log.error({ token: token.symbol, err: errMsg(err) }, 'arming failed'));
+      for (const pre of findSignals(liveCandles, tf, config.scan.breakoutLookbackCandles, preCfg)) {
         const key = `${token.address}:${pre.pattern}:${tf}`;
         if (handled.get(key) === pre.triggerTime) continue;
         // Give GeckoTerminal time to close the same candle on its side.
@@ -53,7 +53,7 @@ export async function runLiveScan(db: Db, tracker: LiveTracker, notifier: Notifi
         const n = (attempts.get(attemptKey) ?? 0) + 1;
         attempts.set(attemptKey, n);
         try {
-          const gt = (await fetchAllTimeframes(token)).get(tf)!;
+          const gt = (await fetchAllTimeframes(token)).get(tf) ?? [];
           const lagging = !gt.length || gt[gt.length - 1].time < pre.triggerTime;
           if (lagging && n < 4) continue; // GT hasn't published that candle yet; retry next minute
           handled.set(key, pre.triggerTime);

@@ -126,7 +126,8 @@ function volumePace(s: SetupRow, tracker: LiveTracker | null, pair: DexPair | un
   const series = tracker?.seriesFor(s.token_address);
   if (series) {
     const base = series.all();
-    const tfCandles = s.timeframe === '15m' ? base : aggregate(base, tfSec);
+    if (tfSec < series.intervalSec) return null;
+    const tfCandles = tfSec === series.intervalSec ? base : aggregate(base, tfSec);
     const forming = tfCandles[tfCandles.length - 1];
     if (forming && forming.time + tfSec > nowSec) {
       const elapsed = Math.max(0.25, (nowSec - forming.time) / tfSec);
@@ -136,7 +137,8 @@ function volumePace(s: SetupRow, tracker: LiveTracker | null, pair: DexPair | un
   const v = pair?.volume;
   if (!v) return null;
   // DexScreener rolling windows scaled to one candle of this timeframe.
-  const perCandle = s.timeframe === '15m' ? (v.m5 ?? 0) * 3 : s.timeframe === '1h' ? v.h1 ?? 0 : ((v.h6 ?? 0) * 4) / 6;
+  const perCandle =
+    s.timeframe === '5m' ? v.m5 ?? 0 : s.timeframe === '15m' ? (v.m5 ?? 0) * 3 : s.timeframe === '1h' ? v.h1 ?? 0 : ((v.h6 ?? 0) * 4) / 6;
   return { pace: perCandle / s.avg_volume, need: config.setups.minVolumePace };
 }
 
@@ -148,7 +150,8 @@ function chartData(s: SetupRow, tracker: LiveTracker | null, nowSec: number): { 
   if (!series) return { candles: [] };
   const tfSec = TIMEFRAME_SECONDS[s.timeframe];
   const base = series.all();
-  const candles = closedOnly(s.timeframe === '15m' ? base : aggregate(base, tfSec), tfSec, nowSec).slice(-config.detectCandles[s.timeframe]);
+  if (tfSec < series.intervalSec) return { candles: [] };
+  const candles = closedOnly(tfSec === series.intervalSec ? base : aggregate(base, tfSec), tfSec, nowSec).slice(-config.detectCandles[s.timeframe]);
   const dbs = s.pattern === 'double_bottom' ? detectDoubleBottomSetup(candles, config.doubleBottom) : null;
   return { candles, db: dbs && dbs.secondLow.time === s.key_time ? dbs : undefined };
 }

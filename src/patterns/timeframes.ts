@@ -1,8 +1,8 @@
 import type { Candle } from './types.js';
 
-export type Timeframe = '15m' | '1h' | '4h';
+export type Timeframe = '5m' | '15m' | '1h' | '4h';
 
-export const TIMEFRAME_SECONDS: Record<Timeframe, number> = { '15m': 900, '1h': 3600, '4h': 14_400 };
+export const TIMEFRAME_SECONDS: Record<Timeframe, number> = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14_400 };
 
 /**
  * Rolls base candles (oldest first) up into a larger UTC-aligned interval, e.g. 15m -> 1h / 4h.
@@ -31,22 +31,31 @@ export function closedOnly(candles: Candle[], intervalSec: number, nowSec = Date
 }
 
 /**
- * 15m base candles -> closed candles per timeframe, newest `maxCandles[tf]` kept.
- * A higher-timeframe bucket is dropped if the base history doesn't cover its start (partial first candle).
+ * Base candles (`baseSec` interval, e.g. 5m or 15m) -> closed candles per timeframe, newest `maxCandles[tf]` kept.
+ * Timeframes finer than the base are skipped (absent from the result). A higher-timeframe bucket is dropped if
+ * the base history doesn't cover its start (partial first candle).
  */
 export function multiTimeframe(
-  base15m: Candle[],
+  base: Candle[],
+  baseSec: number,
   timeframes: readonly Timeframe[],
   maxCandles: Record<Timeframe, number>,
   nowSec = Date.now() / 1000,
 ): Map<Timeframe, Candle[]> {
   const out = new Map<Timeframe, Candle[]>();
-  const firstBase = base15m[0]?.time ?? 0;
+  const firstBase = base[0]?.time ?? 0;
   for (const tf of timeframes) {
     const sec = TIMEFRAME_SECONDS[tf];
-    let series = tf === '15m' ? base15m : aggregate(base15m, sec);
-    if (tf !== '15m' && series.length && series[0].time < firstBase) series = series.slice(1);
+    if (sec < baseSec) continue;
+    let series = sec === baseSec ? base : aggregate(base, sec);
+    if (sec !== baseSec && series.length && series[0].time < firstBase) series = series.slice(1);
     out.set(tf, closedOnly(series, sec, nowSec).slice(-maxCandles[tf]));
   }
   return out;
+}
+
+/** Candle interval to fetch for a token: 5m while it's young (whole history fits), else 15m. */
+export function baseIntervalFor(pairCreatedAtMs: number, youngTokenHours: number, nowMs = Date.now()): { aggregate: 5 | 15; sec: 300 | 900 } {
+  const young = pairCreatedAtMs > 0 && nowMs - pairCreatedAtMs < youngTokenHours * 3_600_000;
+  return young ? { aggregate: 5, sec: 300 } : { aggregate: 15, sec: 900 };
 }

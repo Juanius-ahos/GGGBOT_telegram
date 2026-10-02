@@ -7,6 +7,7 @@ import { geckoterminal } from '../sources/geckoterminal.js';
 import { solanaRpc } from '../sources/solanaRpc.js';
 import type { Candle } from '../patterns/types.js';
 import { CandleSeries, classifySlot } from './candles.js';
+import { baseIntervalFor } from '../patterns/timeframes.js';
 import { decodeMintDecimals, decodePool, decodeTokenAccount, rawPriceFromPoolAccount, type PoolLayout } from './pools.js';
 import { SolanaWsPool, wsUrlFor } from './ws.js';
 
@@ -113,7 +114,7 @@ export class LiveTracker {
    * Called with the GeckoTerminal history fetched for every seed / re-sync. That history is exactly what
    * the scanner needs, so scanning it here saves a second GeckoTerminal call per token.
    */
-  onSeed: ((token: WatchToken, base15m: Candle[]) => void) | null = null;
+  onSeed: ((token: WatchToken, base: Candle[], baseSec: number) => void) | null = null;
 
   constructor() {
     this.ws = new SolanaWsPool(wsUrlFor(config.rpcUrl), (accounts) => {
@@ -281,7 +282,7 @@ export class LiveTracker {
 
     const pool: Pool = {
       token: t, layout, tokenIsA, quoteMint, decA, decB, balA: va.amount, balB: vb.amount,
-      clPriceAB: null, pending: null, series: new CandleSeries(config.scan.candleSeconds), seededAt: 0, dirty: false, swaps: 0, liveVolumeUsd: 0,
+      clPriceAB: null, pending: null, series: new CandleSeries(baseIntervalFor(t.pair_created_at, config.youngTokenHours).sec), seededAt: 0, dirty: false, swaps: 0, liveVolumeUsd: 0,
     };
     if (layout.priceSource !== 'reserves') {
       const raw = rawPriceFromPoolAccount(layout, poolAcc.data);
@@ -326,9 +327,10 @@ export class LiveTracker {
         if (raw !== null) p.clPriceAB = raw * 10 ** (p.decA - p.decB);
       }
     }
+    const base = baseIntervalFor(p.token.pair_created_at, config.youngTokenHours);
     const candles = await geckoterminal.ohlcv(p.token.pair_address, p.token.address, {
-      timeframe: config.scan.timeframe,
-      aggregate: config.scan.aggregate,
+      timeframe: 'minute',
+      aggregate: base.aggregate,
       limit: config.scan.candleLimit,
     });
     if (candles.length === 0) return false;
@@ -340,16 +342,18 @@ export class LiveTracker {
       log.info({ token: p.token.symbol, chainPrice, gtPrice, deviationPct: +(deviation * 100).toFixed(1) }, 'seed sanity check failed');
       return false;
     }
+    // A token that aged past the 5m window switches to a 15m base on its next re-sync.
+    if (p.series.intervalSec !== base.sec) p.series = new CandleSeries(base.sec);
     p.series.seed(candles);
     p.seededAt = Date.now();
     p.dirty = false;
-    this.onSeed?.(p.token, candles);
+    this.onSeed?.(p.token, candles, base.sec);
     return true;
   }
 
   /** Compares candles built purely from chain updates since the last seed with GeckoTerminal's. */
   private measureDrift(p: Pool, gt: Candle[]): void {
-    const iv = config.scan.candleSeconds;
+    const iv = p.series.intervalSec;
     const firstLive = Math.floor(p.seededAt / 1000 / iv) * iv + iv; // first bucket fully observed live
     const gtByTime = new Map(gt.map((c) => [c.time, c]));
     const closeErr: number[] = [];

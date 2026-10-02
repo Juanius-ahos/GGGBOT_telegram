@@ -13,12 +13,20 @@ describe('market filter', () => {
   });
   it.each([
     ['mc', { marketCap: 199_999 }],
+    ['mcmax', { marketCap: 3_000_001 }],
     ['liq', { liquidityUsd: 49_000 }],
     ['vol24h', { volume24h: 99_000 }],
-    ['pair', { pairCreatedAt: NOW - 23 * 3_600_000 }],
-    ['unknown', { pairCreatedAt: 0 }],
   ])('rejects on %s', (prefix, patch) => {
     expect(marketRejection({ ...ok, ...patch }, config.market, NOW)).toMatch(new RegExp(`^${prefix}`));
+  });
+  it('accepts brand-new tokens (no age requirement)', () => {
+    expect(marketRejection({ ...ok, pairCreatedAt: NOW - 10 * 60_000 }, config.market, NOW)).toBeNull();
+    expect(marketRejection({ ...ok, pairCreatedAt: 0 }, config.market, NOW)).toBeNull();
+  });
+  it('still supports an age requirement when configured', () => {
+    const aged = { ...config.market, minPairAgeHours: 24 };
+    expect(marketRejection({ ...ok, pairCreatedAt: NOW - 23 * 3_600_000 }, aged, NOW)).toMatch(/^pair age/);
+    expect(marketRejection({ ...ok, pairCreatedAt: 0 }, aged, NOW)).toMatch(/^unknown/);
   });
 });
 

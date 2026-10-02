@@ -124,9 +124,12 @@ export const config = {
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
     ],
     minMarketCapUsd: 200_000,
+    /** Skip large caps: only small/mid caps up to this market cap. */
+    maxMarketCapUsd: 3_000_000,
     minLiquidityUsd: 50_000,
     minVolume24hUsd: 100_000,
-    minPairAgeHours: 24,
+    /** 0 = no age requirement (fresh launches qualify as soon as they pass every other filter). */
+    minPairAgeHours: 0,
   },
 
   rug: {
@@ -191,12 +194,17 @@ export const config = {
     rewardToRisk: 2,
   } satisfies HammerConfig,
 
-  /** Timeframes scanned for every token. 1h and 4h are built from 15m candles (one fetch covers all three). */
-  timeframes: ['15m', '1h', '4h'] as const,
-  /** Candles per timeframe given to the detectors (GeckoTerminal returns up to 1000 x 15m = ~10 days). */
-  detectCandles: { '15m': 200, '1h': 200, '4h': 200 } as Record<'15m' | '1h' | '4h', number>,
+  /**
+   * Timeframes scanned. One GeckoTerminal call per token: tokens younger than `youngTokenHours` are fetched as
+   * 5m candles (their whole life fits in 1000) and rolled up to 15m/1h/4h; older tokens are fetched as 15m
+   * (~10 days) and rolled up to 1h/4h, so 5m only applies to young tokens.
+   */
+  timeframes: ['5m', '15m', '1h', '4h'] as const,
+  youngTokenHours: 80,
+  /** Candles per timeframe given to the detectors. */
+  detectCandles: { '5m': 200, '15m': 200, '1h': 200, '4h': 200 } as Record<'5m' | '15m' | '1h' | '4h', number>,
   /** How long an alert is tracked before win/loss is decided, per timeframe. */
-  resolutionHours: { '15m': 24, '1h': 72, '4h': 168 } as Record<'15m' | '1h' | '4h', number>,
+  resolutionHours: { '5m': 12, '15m': 24, '1h': 72, '4h': 168 } as Record<'5m' | '15m' | '1h' | '4h', number>,
 
   /**
    * Real-time triggers: a double bottom whose two lows are in place (or a fresh hammer) is "armed", and a

@@ -6,3 +6,6 @@ data/
 .env
 logs/
 *.log
+.env.*
+!.env.example
+.neon

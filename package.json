@@ -17,6 +17,8 @@
     "backtest": "tsx scripts/backtest.ts"
   },
   "dependencies": {
+    "@neon/config": "^1.8.3",
+    "@neon/env": "^1.4.8",
     "@resvg/resvg-js": "^2.6.2",
     "better-sqlite3": "^12.11.1",
     "bs58": "^6.0.0",

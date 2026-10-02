@@ -13,6 +13,7 @@ import { LiveTracker } from './onchain/tracker.js';
 import { runLiveScan } from './jobs/liveScan.js';
 import { restoreIfMissing, SnapshotSaver } from './db/snapshot.js';
 import { startHealthServer, startSelfPing } from './health.js';
+import { limiters } from './sources/limiters.js';
 
 // Jobs catch their own API errors; a stray rejection is logged, not fatal.
 process.on('unhandledRejection', (err) => logger.error({ err: errMsg(err) }, 'unhandled rejection'));
@@ -103,6 +104,14 @@ async function main(): Promise<void> {
         uptimeSec: Math.round(process.uptime()),
         lastDiscovery: db.getKv('job:discovery:last') ? new Date(Number(db.getKv('job:discovery:last'))).toISOString() : null,
         live: tracker?.stats().live ?? 0,
+        tracker: tracker?.stats() ?? null,
+        watchlist: db.watchCounts(),
+        scan: db.getKv('job:scan:summary') ?? null,
+        lastAlert: db.getKv('alert:last') ? new Date(Number(db.getKv('alert:last'))).toISOString() : null,
+        upstream: Object.fromEntries(
+          Object.entries(limiters).map(([k, l]) => [k, { ok: l.completed, rateLimited: l.rateLimitHits, queued: l.queued, intervalMs: l.intervalMs }]),
+        ),
+        memMb: Math.round(process.memoryUsage().rss / 1e6),
       }))
     : null;
   const pinger = config.hosting.publicUrl ? startSelfPing(config.hosting.publicUrl, 10 * 60_000) : null;

@@ -22,6 +22,10 @@ export class RateLimiter {
   private readonly baseIntervalMs: number;
   private currentIntervalMs: number;
   private successStreak = 0;
+  /** 429s seen since start (diagnostics). */
+  rateLimitHits = 0;
+  /** Requests completed since start (diagnostics). */
+  completed = 0;
 
   constructor(readonly name: string, readonly perMinute: number) {
     this.baseIntervalMs = Math.ceil(60_000 / Math.max(perMinute, 0.1));
@@ -37,11 +41,13 @@ export class RateLimiter {
   }
 
   penalize(): void {
+    this.rateLimitHits++;
     this.successStreak = 0;
     this.currentIntervalMs = Math.min(this.baseIntervalMs * 4, Math.ceil(this.currentIntervalMs * 1.5));
   }
 
   reward(): void {
+    this.completed++;
     if (this.currentIntervalMs === this.baseIntervalMs) return;
     if (++this.successStreak >= 10) {
       this.successStreak = 0;

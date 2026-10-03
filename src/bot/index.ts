@@ -17,8 +17,8 @@ const COMMANDS = [
   { command: 'alerts', description: 'Choose patterns + timeframes, manage mutes' },
   { command: 'help', description: 'How it works' },
   { command: 'status', description: 'Is it running, what is it watching' },
-  { command: 'recent', description: 'Latest alerts and how they did' },
-  { command: 'stats', description: 'Win rate and average returns' },
+  { command: 'recent', description: 'Latest alerts' },
+  ...(config.tracking.enabled ? [{ command: 'stats', description: 'Win rate and average returns' }] : []),
   { command: 'settings', description: 'Filters and pattern rules' },
   { command: 'stop', description: 'Unsubscribe' },
 ];
@@ -177,13 +177,17 @@ export class Bot implements Notifier {
         await reply(helpMessage());
         return;
       case '/recent':
-        await reply(recentMessage(this.db.recentAlerts(config.alerts.recentCount)));
+        await reply(recentMessage(this.db.recentAlerts(config.alerts.recentCount), config.tracking.enabled));
         return;
       case '/stats':
-        await reply(statsMessage(this.db.stats(), this.db.bestWorst(), this.db.statsBy()));
+        await reply(
+          config.tracking.enabled
+            ? statsMessage(this.db.stats(), this.db.bestWorst(), this.db.statsBy())
+            : '🏆 Win/loss tracking is off: I alert once per event and move on.',
+        );
         return;
       default:
-        await reply('Use the menu below 👇 or /start, /status, /recent, /stats, /settings, /stop.');
+        await reply('Use the menu below 👇 or /start, /status, /recent, /settings, /stop.');
     }
   }
 

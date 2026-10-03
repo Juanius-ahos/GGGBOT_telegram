@@ -7,20 +7,38 @@ import { findSignals, type Signal } from '../patterns/signals.js';
 import { baseIntervalFor, multiTimeframe, TIMEFRAME_SECONDS, type Timeframe } from '../patterns/timeframes.js';
 import type { Candle } from '../patterns/types.js';
 import { fetchBestPairs } from '../sources/dexscreener.js';
+import { dexpaprika, scaleVolume } from '../sources/dexpaprika.js';
 import { geckoterminal } from '../sources/geckoterminal.js';
+import { limiters } from '../sources/limiters.js';
 import { armFromCandles } from './setups.js';
 
 const log = logger.child({ job: 'scan' });
 
-/** Fetch base candles for a token: 5m while young, 15m after (one GeckoTerminal call). */
-export async function fetchBase(t: Pick<WatchToken, 'pair_address' | 'address' | 'pair_created_at'>): Promise<{ candles: Candle[]; sec: number }> {
+/** DexPaprika calls allowed to wait in its queue before a fetch goes to GeckoTerminal instead. */
+const MAX_DEXPAPRIKA_QUEUE = 2;
+
+type CandleToken = Pick<WatchToken, 'pair_address' | 'address' | 'pair_created_at' | 'volume_24h' | 'symbol'>;
+
+/**
+ * Fetch base candles for a token: 5m while young, 15m after (one call). 15m comes from DexPaprika when a key is
+ * set (its own quota, volume rescaled to DexScreener's); 5m and any DexPaprika failure fall back to GeckoTerminal.
+ */
+export async function fetchBase(t: CandleToken): Promise<{ candles: Candle[]; sec: number }> {
   const b = baseIntervalFor(t.pair_created_at, config.youngTokenHours);
+  if (dexpaprika.supports(b.sec) && limiters.dexpaprika.queued < MAX_DEXPAPRIKA_QUEUE) {
+    try {
+      const raw = await dexpaprika.ohlcv(t.pair_address, t.address, { intervalSec: b.sec, limit: config.scan.candleLimit });
+      if (raw.length) return { candles: scaleVolume(raw, t.volume_24h), sec: b.sec };
+    } catch (err) {
+      log.debug({ token: t.symbol, err: errMsg(err) }, 'dexpaprika candles failed; using GeckoTerminal');
+    }
+  }
   const candles = await geckoterminal.ohlcv(t.pair_address, t.address, { timeframe: 'minute', aggregate: b.aggregate, limit: config.scan.candleLimit });
   return { candles, sec: b.sec };
 }
 
-/** One GeckoTerminal call, rolled up into every timeframe the token's history supports. */
-export async function fetchAllTimeframes(t: Pick<WatchToken, 'pair_address' | 'address' | 'pair_created_at'>): Promise<Map<Timeframe, Candle[]>> {
+/** One candle call, rolled up into every timeframe the token's history supports. */
+export async function fetchAllTimeframes(t: CandleToken): Promise<Map<Timeframe, Candle[]>> {
   const { candles, sec } = await fetchBase(t);
   return multiTimeframe(candles, sec, config.timeframes, config.detectCandles);
 }
@@ -124,6 +142,27 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
   const delivered = await notifier.alert({ alertId: id, row, signal: s, candles });
   log.info({ id, token: t.symbol, address: t.address, pattern: s.pattern, tf: s.timeframe, target: s.target, stop: s.invalidation, delivered, via }, 'ALERT sent');
   return id;
+}
+
+/**
+ * Downloads one coin's chart, runs every detector on every timeframe, alerts on what it finds and arms live
+ * triggers. `lookbackCandles` covers the time since the coin was last checked, so a breakout in between isn't missed.
+ * Returns the number of signals found.
+ */
+export async function checkToken(db: Db, t: WatchToken, notifier: Notifier, via: string, lookbackSec: number): Promise<number> {
+  const fetched = await fetchBase(t);
+  db.markScanned(t.address);
+  const byTf = multiTimeframe(fetched.candles, fetched.sec, config.timeframes, config.detectCandles);
+  let found = 0;
+  for (const [tf, candles] of byTf) {
+    const lookback = Math.min(config.scan.maxBreakoutLookbackCandles, Math.max(config.scan.breakoutLookbackCandles, Math.ceil(lookbackSec / TIMEFRAME_SECONDS[tf]) + 1));
+    for (const s of findSignals(candles, tf, lookback, config)) {
+      found++;
+      await maybeAlert(db, t, s, candles, notifier, via).catch((err) => log.error({ token: t.symbol, err: errMsg(err) }, 'alert failed'));
+    }
+    await armFromCandles(db, t, tf, candles, notifier).catch((err) => log.error({ token: t.symbol, err: errMsg(err) }, 'arming failed'));
+  }
+  return found;
 }
 
 /**

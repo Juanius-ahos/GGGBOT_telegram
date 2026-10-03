@@ -1,11 +1,5 @@
-import type { Notifier } from '../bot/notifier.js';
 import { config } from '../config.js';
-import type { Db, WatchToken } from '../db/index.js';
-import { errMsg } from '../lib/http.js';
-import { logger } from '../logger.js';
-import { dexscreener, type DexPair } from '../sources/dexscreener.js';
 
-const log = logger.child({ job: 'dumps' });
 
 type DumpTf = (typeof config.dumps.timeframes)[number];
 const TF_SEC: Record<DumpTf, number> = { '5m': 300, '15m': 900 };
@@ -70,41 +64,5 @@ export class DumpDetector {
   /** Forget tokens that left the watchlist. */
   retain(tokens: Set<string>): void {
     for (const k of this.samples.keys()) if (!tokens.has(k)) this.samples.delete(k);
-  }
-}
-
-/** The watchlist pair if DexScreener returned it, else the deepest one (keeps the price series on one pool). */
-function pairFor(t: WatchToken, pairs: DexPair[]): DexPair | undefined {
-  const own = pairs.filter((p) => p.baseToken?.address === t.address);
-  return own.find((p) => p.pairAddress === t.pair_address) ?? own.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
-}
-
-export async function runDumpWatcher(db: Db, detector: DumpDetector, notifier: Notifier, isStopped: () => boolean): Promise<void> {
-  const tokens = db.scanQueue(100_000);
-  detector.retain(new Set(tokens.map((t) => t.address)));
-  for (let i = 0; i < tokens.length && !isStopped(); i += 30) {
-    const chunk = tokens.slice(i, i + 30);
-    let pairs: DexPair[];
-    try {
-      pairs = await dexscreener.tokensPairs(chunk.map((t) => t.address));
-    } catch (err) {
-      log.warn({ err: errMsg(err) }, 'price sample failed');
-      continue;
-    }
-    const now = Date.now();
-    for (const t of chunk) {
-      const pair = pairFor(t, pairs);
-      const p = Number(pair?.priceUsd);
-      if (!pair || !p) continue;
-      for (const d of detector.observe(t.address, now, p)) {
-        const marketCap = pair.marketCap ?? pair.fdv ?? t.market_cap;
-        const liquidityUsd = pair.liquidity?.usd ?? t.liquidity_usd;
-        db.insertDump({ token_address: t.address, symbol: t.symbol, timeframe: d.timeframe, candle_time: d.candleTime, open_price: d.open, price: d.price, drop_pct: d.dropPct, market_cap: marketCap, liquidity_usd: liquidityUsd, created_at: now });
-        const delivered = await notifier
-          .dump({ token: t, pairAddress: pair.pairAddress ?? t.pair_address, marketCap, liquidityUsd, ...d })
-          .catch((err) => (log.error({ token: t.symbol, err: errMsg(err) }, 'dump alert failed'), 0));
-        log.info({ token: t.symbol, address: t.address, tf: d.timeframe, dropPct: +d.dropPct.toFixed(1), delivered }, 'DUMP alert sent');
-      }
-    }
   }
 }

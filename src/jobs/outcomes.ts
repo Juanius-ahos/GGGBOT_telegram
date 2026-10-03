@@ -6,6 +6,7 @@ import { errMsg } from '../lib/http.js';
 import { logger } from '../logger.js';
 import type { Candle } from '../patterns/types.js';
 import { fetchBestPairs } from '../sources/dexscreener.js';
+import { dexpaprika } from '../sources/dexpaprika.js';
 import { geckoterminal } from '../sources/geckoterminal.js';
 
 const log = logger.child({ job: 'outcomes' });
@@ -63,7 +64,12 @@ async function finalize(db: Db, a: AlertRow, livePrice: number | null, notifier:
   try {
     // Candles ending just after the window closes (works even if the bot was offline meanwhile).
     const before = Math.floor(a.created_at / 1000) + windowH * 3600 + candleSec;
-    candles = await geckoterminal.ohlcv(a.pair_address, a.token_address, {
+    const startSec = Math.floor(a.created_at / 1000) - candleSec;
+    // Only prices matter here, so DexPaprika's volume scale doesn't; GeckoTerminal past its 7-day window.
+    candles = dexpaprika.supports(candleSec) && startSec >= dexpaprika.earliest()
+      ? await dexpaprika.ohlcv(a.pair_address, a.token_address, { intervalSec: candleSec, startSec, priority: 'low' }).then((c) => (c.length ? c : null), () => null)
+      : null;
+    candles ??= await geckoterminal.ohlcv(a.pair_address, a.token_address, {
       timeframe: useHourly ? 'hour' : config.scan.timeframe,
       aggregate: useHourly ? 1 : config.scan.aggregate,
       limit: Math.min(1000, Math.ceil((windowH * 3600) / candleSec) + 4),

@@ -116,6 +116,8 @@ export class LiveTracker {
    * the scanner needs, so scanning it here saves a second GeckoTerminal call per token.
    */
   onSeed: ((token: WatchToken, base: Candle[], baseSec: number) => void) | null = null;
+  /** History already built from the whole-market stream, if long enough to replace a download. */
+  historyFor: ((token: WatchToken, baseSec: number) => Candle[] | null) | null = null;
 
   constructor() {
     this.ws = new SolanaWsPool(wsUrlFor(config.rpcUrl), (accounts) => {
@@ -359,9 +361,12 @@ export class LiveTracker {
       }
     }
     const base = prefetched ? { sec: prefetched.sec } : baseIntervalFor(p.token.pair_created_at, config.youngTokenHours);
+    const streamed = prefetched ? null : this.historyFor?.(p.token, base.sec) ?? null;
     const candles = prefetched
       ? prefetched.candles
-      : await geckoterminal.ohlcv(p.token.pair_address, p.token.address, {
+      : streamed
+        ? streamed
+        : await geckoterminal.ohlcv(p.token.pair_address, p.token.address, {
           timeframe: 'minute',
           aggregate: baseIntervalFor(p.token.pair_created_at, config.youngTokenHours).aggregate,
           limit: config.scan.candleLimit,
@@ -372,7 +377,7 @@ export class LiveTracker {
     const chainPrice = this.priceUsd(p);
     const gtPrice = candles[candles.length - 1].close;
     const deviation = chainPrice ? Math.abs(chainPrice - gtPrice) / gtPrice : Infinity;
-    if (p.seededAt > 0 && !p.dirty) this.measureDrift(p, candles);
+    if (p.seededAt > 0 && !p.dirty && !streamed) this.measureDrift(p, candles);
     if (deviation > config.live.maxSeedDeviationPct / 100) {
       log.info({ token: p.token.symbol, chainPrice, gtPrice, deviationPct: +(deviation * 100).toFixed(1) }, 'seed sanity check failed');
       return false;

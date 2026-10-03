@@ -155,8 +155,8 @@ export const MENU = {
 export const menuKeyboard: ReplyKeyboard = {
   keyboard: [
     [{ text: MENU.myAlerts }, { text: MENU.recent }],
-    [{ text: MENU.stats }, { text: MENU.status }],
-    [{ text: MENU.rules }, { text: MENU.help }],
+    [{ text: MENU.status }, { text: MENU.rules }],
+    [{ text: MENU.help }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -219,8 +219,7 @@ export function helpMessage(): string {
     ``,
     `<b>Menu</b>`,
     `${MENU.myAlerts} — pick patterns + timeframes, manage muted tokens`,
-    `${MENU.recent} — latest alerts and how they played out`,
-    `${MENU.stats} — win rate and average returns, by setup`,
+    `${MENU.recent} — the latest alerts`,
     `${MENU.status} — is it running, how many tokens it watches`,
     `${MENU.rules} — exact filters and pattern rules`,
     ``,
@@ -270,8 +269,15 @@ export function myAlertsPanel(v: PrefsView, allTimeframes: readonly string[]): {
 
 const outcomeIcon: Record<string, string> = { target: '🎯', invalidation: '🛑', none: '➖', pending: '⏳' };
 
-export function recentMessage(rows: AlertRow[]): string {
+/** Latest alerts. Without outcome tracking (`tracked` false) they're listed plainly, with no results. */
+export function recentMessage(rows: AlertRow[], tracked = true): string {
   if (!rows.length) return `🕒 <b>Recent alerts</b>\n\nNo alerts yet — I'll ping you as soon as a breakout confirms.`;
+  if (!tracked) {
+    const plain = rows.map(
+      (a) => `${PATTERN_ICON[a.pattern] ?? ''} <a href="${links.dexscreener(a.pair_address)}"><b>$${esc(a.symbol)}</b></a> ${a.timeframe} · ${PATTERN_SHORT[a.pattern] ?? a.pattern} · MC ${usd(a.market_cap)} · ${ago(a.created_at)}`,
+    );
+    return [`🕒 <b>Recent alerts</b>`, ``, ...plain].join('\n');
+  }
   const lines = rows.map((a) => {
     const best = a.pct_24h ?? a.pct_4h ?? a.pct_1h;
     const when = best === a.pct_24h && best !== null ? '24h' : best === a.pct_4h && best !== null ? '4h' : best !== null ? '1h' : '';

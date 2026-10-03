@@ -10,6 +10,17 @@ import { jupiter } from '../sources/jupiter.js';
 
 const log = logger.child({ job: 'discovery' });
 
+/**
+ * Candidates that were far below the market-cap floor (or had no pair) last time, and when to look again. Most of
+ * the pool is dead launches; re-checking them every cycle was ~3 GB/month of DexScreener calls for nothing.
+ */
+const snoozed = new Map<string, number>();
+
+/** A coin just listed by a feed or the market sweep is active again: check it on the next cycle. */
+export function wake(addresses: Iterable<string>): void {
+  for (const a of addresses) snoozed.delete(a);
+}
+
 const SOURCES: [string, () => Promise<string[]>][] = [
   ['ds:topBoosts', dexscreener.topBoosts],
   ['ds:latestBoosts', dexscreener.latestBoosts],
@@ -38,12 +49,22 @@ export async function runDiscovery(db: Db, isStopped: () => boolean): Promise<vo
   });
   const fromFeeds = candidates.size;
   db.addCandidates([...candidates], 'feeds');
+  wake(candidates);
   // Everything surfaced in the pool window (feeds + pump.fun graduations), plus the current watchlist.
   const poolSince = Date.now() - config.jobs.candidatePoolDays * 86_400_000;
   const pruned = db.pruneCandidates(poolSince);
   db.candidateAddresses(poolSince).forEach((a) => candidates.add(a));
-  db.activeAddresses().forEach((a) => candidates.add(a));
+  const active = new Set(db.activeAddresses());
+  active.forEach((a) => candidates.add(a));
   for (const m of excluded) candidates.delete(m);
+  const now0 = Date.now();
+  let skipped = 0;
+  for (const a of candidates) {
+    if (!active.has(a) && (snoozed.get(a) ?? 0) > now0) {
+      candidates.delete(a);
+      skipped++;
+    }
+  }
 
   // 2. Enrich in batches of 30. Only addresses whose batch succeeded may be expired.
   const addrs = [...candidates];
@@ -67,6 +88,8 @@ export async function runDiscovery(db: Db, isStopped: () => boolean): Promise<vo
   for (const addr of queried) {
     const pair = best.get(addr);
     const reason = pair ? marketRejection(snapshot(pair), config.market) : 'no solana pair';
+    if (!pair || snapshot(pair).marketCap < config.market.minMarketCapUsd * config.jobs.deadMcFraction) snoozed.set(addr, Date.now() + config.jobs.deadRecheckMs);
+    else snoozed.delete(addr);
     if (reason || !pair) {
       if (db.getToken(addr)?.active) db.deactivate(addr);
       dropped++;
@@ -89,7 +112,7 @@ export async function runDiscovery(db: Db, isStopped: () => boolean): Promise<vo
     });
     kept++;
   }
-  log.info({ sources: perSource, fromFeeds, pool: db.candidateCount(), pruned, checked: queried.size, kept, dropped, reasons }, 'watchlist refreshed');
+  log.info({ sources: perSource, fromFeeds, pool: db.candidateCount(), pruned, snoozed: skipped, checked: queried.size, kept, dropped, reasons }, 'watchlist refreshed');
 
   // 4. Rug filter, once per token per cache window.
   const now = Date.now();

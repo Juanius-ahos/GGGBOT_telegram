@@ -4,7 +4,30 @@ Scans Solana tokens, filters out likely rugs, detects **double-bottom breakouts*
 **15m, 1h and 4h** charts, and sends Telegram alerts.
 Everything runs on free, keyless APIs.
 
-## Pipeline
+## How it runs now (default, free hosting)
+
+Alert once per event, then move on: no win/loss tracking, no follow-ups (`TRACK_OUTCOMES=1` brings them back).
+
+1. **Find every coin.** Hourly, the whole Solana market is listed from DexPaprika sorted by 24h volume, down to the
+   volume floor (~28 calls, ~500 coins above $50K volume and liquidity, every DEX). Plus the trending feeds every
+   10 min and every pump.fun graduation in real time. Discovery applies the exact filters (DexScreener) and the rug
+   check. Dead candidates are re-checked every 2h instead of every 10 min, unless a feed or the sweep lists them again.
+2. **Glance at every watched coin once a minute** (DexScreener, 30 coins per call): 5m/1h price change and 5m volume
+   vs the 6h pace. This also feeds the 🩸 sudden-drop alert.
+3. **Open the chart only when something is happening**: a 5m volume spike (≥ 2× pace) or a sharp move (≥ 5% in 5m,
+   ≥ 10% in 1h). Breakouts and hammers need above-average volume, so that's where they show up. Quiet coins still get a
+   chart check every 3h when the candle APIs are idle. Charts: DexPaprika (15m+, needs `DEXPAPRIKA_API_KEY`) or
+   GeckoTerminal (5m, and fallback). 3 checks run in parallel.
+4. **Alert once.** Same 12h cooldown per coin, pattern and timeframe.
+
+Measured Oct 2026 (dry run, 15 min): 492 coins from the sweep, watchlist 131 → 171 after one sweep, 0 errors.
+Data use is roughly 8–10 GB/month (DexScreener ~7.5 KB per 30-coin call, GeckoTerminal ~20 KB per chart,
+DexPaprika ~8 KB). Check your host's bandwidth allowance.
+
+Optional, for hosts without a bandwidth cap: `LIVE_TRACKING=1` (per-pool on-chain candles) and `MARKET_STREAM=1`
+(every swap on PumpSwap / Raydium CPMM+CLMM / Orca via `logsSubscribe`, ~37 GB/day incoming, `src/onchain/market.ts`).
+
+## Pipeline (detailed, including the optional live modes)
 
 | Stage | Every | Source | Notes |
 |---|---|---|---|

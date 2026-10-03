@@ -11,4 +11,5 @@ export const limiters = {
   rugcheck: new RateLimiter('rugcheck', r.rugcheck),
   rpc: new RateLimiter('solana-rpc', r.rpc),
   jupiter: new RateLimiter('jupiter', r.jupiter),
+  dexpaprika: new RateLimiter('dexpaprika', r.dexpaprika),
 };

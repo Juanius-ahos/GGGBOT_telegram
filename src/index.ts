@@ -10,9 +10,11 @@ import { DryRunNotifier, type Notifier } from './bot/notifier.js';
 import { Scheduler } from './jobs/scheduler.js';
 import { PumpPortalStream } from './sources/pumpportal.js';
 import { LiveTracker } from './onchain/tracker.js';
+import { MarketStream, QUOTE_MINTS } from './onchain/market.js';
 import { runLiveScan } from './jobs/liveScan.js';
 import { runSetupWatcher } from './jobs/setups.js';
-import { DumpDetector, runDumpWatcher } from './jobs/dumps.js';
+import { DumpDetector } from './jobs/dumps.js';
+import { ChartQueue, runChartChecks, runSweep, runWatch } from './jobs/watch.js';
 import { restoreIfMissing, SnapshotSaver } from './db/snapshot.js';
 import { startHealthServer, startSelfPing } from './health.js';
 import { limiters } from './sources/limiters.js';
@@ -92,6 +94,15 @@ async function main(): Promise<void> {
     tracker.start();
     syncTracker(); // tokens that already passed rug checks in a previous run
   }
+  // Whole market: every swap on PumpSwap / Raydium CPMM+CLMM / Orca. Coins in the filter range become discovery
+  // candidates (exact DexScreener + rug checks still apply), and their streamed candles replace history downloads.
+  const market = tracker && config.stream.enabled ? new MarketStream((mint) => tracker.quotes.get(mint)) : null;
+  if (tracker && market) {
+    for (const q of QUOTE_MINTS) void tracker.quotes.ensure(q);
+    market.onCandidate = (mint) => db.addCandidates([mint], 'stream');
+    tracker.historyFor = (t, baseSec) => market.history(t.pair_address, baseSec, t.pair_created_at);
+    market.start();
+  }
   // Live pools are scanned every minute from chain candles; everything else (including tokens still waiting for
   // live setup) is scanned by the GT rotation, whose fetch also sets the token up for live tracking.
   const isLive = (address: string) => tracker?.isLive(address) ?? false;
@@ -115,9 +126,13 @@ async function main(): Promise<void> {
     syncTracker();
   }, 0);
   // Give the first discovery a head start so the scan has something to look at.
-  scheduler.add('scan', patternScanIntervalMs, () => runPatternScan(db, notifier, stopped, isLive, adopt), 90_000);
+  // Chart checks: with live tracking, the old GeckoTerminal rotation; otherwise (default, free hosting) only coins
+  // the watch job flags as active, plus a slow baseline pass over the quiet ones.
+  const charts = new ChartQueue();
+  if (tracker) scheduler.add('scan', patternScanIntervalMs, () => runPatternScan(db, notifier, stopped, isLive, adopt), 90_000);
+  else scheduler.add('charts', 30_000, () => runChartChecks(db, charts, notifier, stopped), 90_000);
   if (tracker) scheduler.add('live-scan', config.live.detectIntervalMs, () => runLiveScan(db, tracker, notifier, stopped), 60_000);
-  scheduler.add('outcomes', outcomeIntervalMs, () => runOutcomeTracker(db, notifier, stopped), 30_000);
+  if (config.tracking.enabled) scheduler.add('outcomes', outcomeIntervalMs, () => runOutcomeTracker(db, notifier, stopped), 30_000);
   // Real-time triggers: neckline / hammer-high crosses alert immediately instead of at candle close.
   scheduler.add('setups', config.setups.watchIntervalMs, async () => {
     await runSetupWatcher(db, tracker, notifier, stopped);
@@ -126,7 +141,10 @@ async function main(): Promise<void> {
 
   // Sudden one-candle drops (5m / 15m) on every watched token, from DexScreener prices.
   const dumps = new DumpDetector();
-  scheduler.add('dumps', config.dumps.sampleIntervalMs, () => runDumpWatcher(db, dumps, notifier, stopped), 30_000);
+  // Once a minute: every watched coin's price/volume (sudden drops + activity that earns a chart check).
+  scheduler.add('watch', config.watch.intervalMs, () => runWatch(db, dumps, charts, notifier, stopped), 30_000);
+  // Hourly: every Solana coin above the volume/liquidity floor joins the discovery pool (needs a DexPaprika key).
+  if (config.dexpaprikaApiKey) scheduler.add('sweep', config.watch.sweepEveryMs, () => runSweep(db), 60_000);
 
   // Web port + keep-awake for hosts that sleep idle web services (Render sets PORT and RENDER_EXTERNAL_URL).
   healthStatus = () => ({
@@ -134,8 +152,11 @@ async function main(): Promise<void> {
         lastDiscovery: db.getKv('job:discovery:last') ? new Date(Number(db.getKv('job:discovery:last'))).toISOString() : null,
         live: tracker?.stats().live ?? 0,
         tracker: tracker?.stats() ?? null,
+        market: market?.stats() ?? null,
         watchlist: db.watchCounts(),
         scan: db.getKv('job:scan:summary') ?? null,
+        watch: db.getKv('job:watch:summary') ?? null,
+        sweep: db.getKv('job:sweep:summary') ?? null,
         lastAlert: db.getKv('alert:last') ? new Date(Number(db.getKv('alert:last'))).toISOString() : null,
         upstream: Object.fromEntries(
           Object.entries(limiters).map(([k, l]) => [k, { ok: l.completed, rateLimited: l.rateLimitHits, queued: l.queued, intervalMs: l.intervalMs }]),
@@ -158,6 +179,7 @@ async function main(): Promise<void> {
     const finalSave = saver?.stop();
     pumpportal.stop();
     tracker?.stop();
+    market?.stop();
     if (pinger) clearInterval(pinger);
     server?.close();
     await finalSave;

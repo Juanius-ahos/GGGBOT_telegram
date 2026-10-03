@@ -76,6 +76,8 @@ export const config = {
   rpcUrl: process.env.RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com',
   /** Optional free key from portal.jup.ag; without it the keyless lite-api host is used. */
   jupiterApiKey: process.env.JUPITER_API_KEY?.trim() || '',
+  /** Optional free key from dexpaprika.com: 15m/1h candles (last 7 days) on its own quota instead of GeckoTerminal. */
+  dexpaprikaApiKey: process.env.DEXPAPRIKA_API_KEY?.trim() || '',
   dbPath: process.env.DB_PATH?.trim() || './data/soleye.db',
 
   /** Only needed on hosts like Render free (ephemeral disk, sleeps without traffic). */
@@ -106,6 +108,8 @@ export const config = {
     rugcheck: envNum('RUGCHECK_RPM', 20), // unpublished; be polite
     rpc: envNum('RPC_RPM', 120), // public RPC: 100 req / 10 s per IP, 40 / 10 s per method
     jupiter: 30, // free tier: 60/min
+    // Free key: 100K credits/month at ~1 credit per call, i.e. ~2.3/min sustained. 2/min = ~89K/month.
+    dexpaprika: envNum('DEXPAPRIKA_RPM', 2),
   },
 
   jobs: {
@@ -116,6 +120,9 @@ export const config = {
     maxRugChecksPerCycle: 60,
     /** Keep re-checking surfaced addresses for this long (catches tokens that grow into the filters). */
     candidatePoolDays: 7,
+    /** Candidates below this fraction of the minimum market cap (or with no pair) are re-checked only every... */
+    deadMcFraction: 0.3,
+    deadRecheckMs: 2 * 3_600_000,
     /** GeckoTerminal calls kept in reserve for discovery each scan window. */
     gtReservedCallsPerScan: 3,
   },
@@ -234,7 +241,8 @@ export const config = {
 
   live: {
     /** Build candles from on-chain pool updates (websocket) for supported pools. */
-    enabled: process.env.LIVE_TRACKING !== '0',
+    // Off by default: the whole-market watch replaces per-pool tracking on free hosting. LIVE_TRACKING=1 to use it.
+    enabled: process.env.LIVE_TRACKING === '1',
     /** Re-seed each live pool from GeckoTerminal this often to correct any drift. */
     // 2h re-syncs of ~50 pools used nearly all of the GeckoTerminal calls Render's shared IP gets (~25/h).
     resyncHours: envNum('LIVE_RESYNC_HOURS', 6),
@@ -262,18 +270,67 @@ export const config = {
   },
 
   /**
+   * Whole-market stream: every swap on PumpSwap, Raydium CPMM/CLMM and Orca via Solana logsSubscribe (free RPC).
+   * Coins near the market filter get 5m candles kept in memory and are passed to discovery as candidates.
+   */
+  stream: {
+    // ~37 GB/day of incoming data (Oct 2026): only for hosts without a bandwidth cap. MARKET_STREAM=1 to use it.
+    enabled: process.env.MARKET_STREAM === '1',
+    candleSec: 300,
+    /** 5m candles kept per pool: 1100 = ~3.8 days. */
+    maxCandles: 1100,
+    /** Hard cap on pools with candles in memory (~1 MB per 10 pools at full history). */
+    maxPools: envNum('STREAM_MAX_POOLS', 3000),
+    /** Keep candles for coins between minMC x low and maxMC x high, so coins growing into range have history. */
+    mcMarginLow: 0.3,
+    mcMarginHigh: 2,
+    /** Forget pools with no trade for this long. */
+    dropAfterQuietHours: 6,
+    /** Re-offer an in-range coin to discovery at most this often. */
+    candidateEveryMs: 30 * 60_000,
+    /** New pools are looked up (account + mints) in batches this often. */
+    resolveEveryMs: 5000,
+  },
+
+  /**
    * Sudden drop: the price of a watched token falls at least this much within one candle (open -> live price),
    * sampled from DexScreener so it covers every watched token, live on-chain or not.
    */
   dumps: {
-    sampleIntervalMs: 30_000,
+    /** Prices come from the watch job's once-a-minute DexScreener look (see `watch`). */
+    sampleIntervalMs: 60_000,
     timeframes: ['5m', '15m'] as const,
     minDropPct: 30,
     /** Falls deeper than this are still alerted, labelled as a possible rug. */
     rugLabelAbovePct: 50,
   },
 
+  /**
+   * Whole-market watch, sized for free hosting: an hourly sweep finds every coin above the volume/liquidity floor,
+   * a once-a-minute DexScreener look at every watched coin spots activity, and only active coins get their chart
+   * downloaded and checked. Coins with nothing going on are still checked every `baselineEveryMs`.
+   */
+  watch: {
+    intervalMs: envNum('WATCH_INTERVAL_SEC', 60) * 1000,
+    sweepEveryMs: 60 * 60_000,
+    /** 5-minute volume at least this many times the 6h average pace. */
+    volumeSpike: 2,
+    /** ...or price moved this much (either way) in 5 minutes / 1 hour. */
+    moveM5Pct: 5,
+    moveH1Pct: 10,
+    /** A coin checked less than this long ago isn't queued again. */
+    recheckAfterMs: 10 * 60_000,
+    /** Quiet coins still get a chart check this often, when the candle APIs are idle. */
+    baselineEveryMs: 3 * 3_600_000,
+    /** Each chart-check run stops after this long, so the scheduler stays responsive. */
+    chartRunMs: 50_000,
+    /** Chart checks running at once. */
+    chartWorkers: 3,
+  },
+
   tracking: {
+    /** Win/loss tracking and follow-up replies. Off: the bot alerts once per event and moves on. */
+    enabled: process.env.TRACK_OUTCOMES === '1',
     checkpointsHours: [1, 4, 24] as const,
   },
 };

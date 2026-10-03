@@ -13,6 +13,8 @@ export interface DexPair {
   quoteToken: { address: string; name: string; symbol: string };
   priceUsd?: string;
   volume?: { m5?: number; h1?: number; h6?: number; h24?: number };
+  /** Percent change over each rolling window. */
+  priceChange?: { m5?: number; h1?: number; h6?: number; h24?: number };
   liquidity?: { usd?: number };
   fdv?: number;
   marketCap?: number;

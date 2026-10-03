@@ -4,10 +4,10 @@ import { errMsg } from '../lib/http.js';
 import { logger } from '../logger.js';
 import { fetchBestPairs } from '../sources/dexscreener.js';
 import {
-  alertCaption, alertKeyboard, helpMessage, MENU, menuKeyboard, myAlertsPanel, PATTERN_NAME, PATTERNS, pct, price,
+  alertCaption, alertKeyboard, DEFAULT_PATTERNS, dumpMessage, helpMessage, linksKeyboard, MENU, menuKeyboard, myAlertsPanel, PATTERN_NAME, PATTERNS, pct, price,
   recentMessage, settingsMessage, statsMessage, statusMessage, welcomeMessage, type StatusData,
 } from './format.js';
-import { tryRenderChart, type AlertPayload, type Notifier } from './notifier.js';
+import { tryRenderChart, type AlertPayload, type DumpPayload, type Notifier } from './notifier.js';
 import { TelegramClient, type SendResult, type TgCallbackQuery, type TgMessage } from './telegram.js';
 
 const log = logger.child({ mod: 'bot' });
@@ -80,6 +80,21 @@ export class Bot implements Notifier {
     return delivered;
   }
 
+  /** Sudden-drop text alert to every subscriber who wants it on this timeframe and hasn't muted the token. */
+  async dump(d: DumpPayload): Promise<number> {
+    const html = dumpMessage(d);
+    const keyboard = linksKeyboard(d.token.address, d.pairAddress);
+    let delivered = 0;
+    for (const chatId of this.db.activeSubscribers()) {
+      if (this.db.isMuted(chatId, d.token.address)) continue;
+      if (!this.wants(chatId, 'dump', d.timeframe)) continue;
+      const r = await this.client.send(chatId, html, { keyboard });
+      if (r.status === 'ok') delivered++;
+      this.handleBlocked(chatId, r);
+    }
+    return delivered;
+  }
+
   /** Replies under the original alert in every chat that received it. */
   async followUp(alertId: number, html: string): Promise<void> {
     for (const { chat_id, message_id } of this.db.alertMessages(alertId)) {
@@ -88,10 +103,10 @@ export class Bot implements Notifier {
     }
   }
 
-  /** Effective preferences (missing = everything on). */
+  /** Effective preferences (missing = defaults: everything except the early "forming" heads-up). */
   private prefs(chatId: number): { patterns: string[]; timeframes: string[] } {
     const p = this.db.getPrefs(chatId);
-    return { patterns: p.patterns ?? [...PATTERNS], timeframes: p.timeframes ?? [...config.timeframes] };
+    return { patterns: p.patterns ?? [...DEFAULT_PATTERNS], timeframes: p.timeframes ?? [...config.timeframes] };
   }
 
   private wants(chatId: number, pattern: string, timeframe: string): boolean {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { config, type HammerConfig } from '../src/config.js';
 import { detectHammer, isHammerShape } from '../src/patterns/hammer.js';
+import { findSignals } from '../src/patterns/signals.js';
 import { aggregate, multiTimeframe } from '../src/patterns/timeframes.js';
 import type { Candle } from '../src/patterns/types.js';
 
@@ -110,6 +111,17 @@ describe('detectHammer', () => {
     const prior = downtrend();
     const h = hammerAfter(prior, { wick: 1.2 });
     expect(detectHammer([...prior, h, confirm(h)], cfg)).toBeNull();
+  });
+});
+
+describe('hammer timeframes', () => {
+  it('alerts hammers on 15m, 1h and 4h but not 5m', () => {
+    const prior = downtrend();
+    const h = hammerAfter(prior);
+    const candles = [...prior, h, confirm(h)];
+    const hammers = (tf: '5m' | '15m' | '1h' | '4h') => findSignals(candles, tf, 1, config).filter((s) => s.pattern === 'hammer');
+    expect(hammers('5m')).toHaveLength(0);
+    for (const tf of ['15m', '1h', '4h'] as const) expect(hammers(tf)).toHaveLength(1);
   });
 });
 

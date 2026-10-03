@@ -92,6 +92,11 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
     log.info({ token: t.symbol, pattern: s.pattern, tf: s.timeframe }, 'signal found but price already below stop; skipped');
     return null;
   }
+  const rr = (s.target - priceNow) / (priceNow - s.invalidation);
+  if (s.trigger !== 'forming' && rr < config.alerts.minRewardToRisk) {
+    log.info({ token: t.symbol, pattern: s.pattern, tf: s.timeframe, rr: +rr.toFixed(2) }, 'signal found but entry too late (reward < risk); skipped');
+    return null;
+  }
 
   const row: NewAlert & { confluence: string | null; trigger: 'close' | 'cross' | 'forming' } = {
     token_address: t.address,

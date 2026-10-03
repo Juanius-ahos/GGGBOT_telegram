@@ -201,11 +201,39 @@ CREATE TABLE IF NOT EXISTS mutes (
   PRIMARY KEY (chat_id, token_address)
 );
 
+-- Sudden single-candle drops that were alerted (see jobs/dumps.ts).
+CREATE TABLE IF NOT EXISTS dumps (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_address TEXT NOT NULL,
+  symbol        TEXT NOT NULL,
+  timeframe     TEXT NOT NULL,
+  candle_time   INTEGER NOT NULL,
+  open_price    REAL NOT NULL,
+  price         REAL NOT NULL,
+  drop_pct      REAL NOT NULL,
+  market_cap    REAL NOT NULL,
+  liquidity_usd REAL NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS kv (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 `;
+
+export interface DumpRow {
+  token_address: string;
+  symbol: string;
+  timeframe: string;
+  candle_time: number;
+  open_price: number;
+  price: number;
+  drop_pct: number;
+  market_cap: number;
+  liquidity_usd: number;
+  created_at: number;
+}
 
 export type Db = ReturnType<typeof openDb>;
 
@@ -273,6 +301,9 @@ export function openDb(file: string) {
       VALUES (@token_address, @symbol, @name, @pair_address, @created_at, @price_at_alert, @market_cap,
               @liquidity_usd, @first_low, @second_low, @neckline, @breakout_price, @breakout_time,
               @invalidation, @target, @price_at_alert, @price_at_alert, @pattern, @timeframe, @confluence, @trigger)`),
+    insertDump: db.prepare(`
+      INSERT INTO dumps (token_address, symbol, timeframe, candle_time, open_price, price, drop_pct, market_cap, liquidity_usd, created_at)
+      VALUES (@token_address, @symbol, @timeframe, @candle_time, @open_price, @price, @drop_pct, @market_cap, @liquidity_usd, @created_at)`),
     insertSetup: db.prepare(`
       INSERT OR IGNORE INTO setups (token_address, pattern, timeframe, key_time, trigger_level, invalidation, target,
                                     first_low, second_low, neckline, avg_volume, armed_at, expires_at)
@@ -396,6 +427,7 @@ export function openDb(file: string) {
     addAlertMessage: (alertId: number, chatId: number, messageId: number) => stmts.addAlertMessage.run(alertId, chatId, messageId),
     alertMessages: (alertId: number) => stmts.alertMessages.all(alertId) as { chat_id: number; message_id: number }[],
     mute: (chatId: number, token: string, until: number) => stmts.mute.run(chatId, token, until),
+    insertDump: (d: DumpRow) => stmts.insertDump.run(d),
     isMuted: (chatId: number, token: string) => !!stmts.isMuted.get(chatId, token, now()),
     alertsSince: (t: number) => (stmts.alertsSince.get(t) as { n: number }).n,
     /** Which patterns/timeframes a chat wants; null fields mean "all". */

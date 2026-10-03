@@ -15,7 +15,7 @@ describe('market filter', () => {
     ['mc', { marketCap: 99_999 }],
     ['mcmax', { marketCap: 3_000_001 }],
     ['liq', { liquidityUsd: 49_000 }],
-    ['vol24h', { volume24h: 99_000 }],
+    ['vol24h', { volume24h: 49_000 }],
   ])('rejects on %s', (prefix, patch) => {
     expect(marketRejection({ ...ok, ...patch }, config.market, NOW)).toMatch(new RegExp(`^${prefix}`));
   });
@@ -78,7 +78,8 @@ describe('rug verdict', () => {
     expect(v.reason).toBe('freeze authority not revoked');
   });
   it('fails on concentrated holders, danger risks, high score and rugged flag', () => {
-    expect(judgeRug({ report: report(), mint, top10Pct: 30 }, config.rug).status).toBe('fail');
+    expect(judgeRug({ report: report(), mint, top10Pct: 40 }, config.rug).status).toBe('fail');
+    expect(judgeRug({ report: report(), mint, top10Pct: 35 }, config.rug).status).toBe('pass');
     expect(judgeRug({ report: report({ risks: [{ name: 'Copycat', level: 'danger' }] }), mint, top10Pct: 1 }, config.rug).status).toBe('fail');
     expect(judgeRug({ report: report({ risks: [{ name: 'Mutable metadata', level: 'warn' }] }), mint, top10Pct: 1 }, config.rug).status).toBe('pass');
     expect(judgeRug({ report: report({ score_normalised: 80 }), mint, top10Pct: 1 }, config.rug).status).toBe('fail');

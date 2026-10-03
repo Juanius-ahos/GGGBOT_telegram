@@ -66,7 +66,7 @@ const CROSS_TITLE: Record<string, string> = {
   double_bottom: '⚡ <b>DOUBLE BOTTOM BREAKOUT · LIVE</b>',
   hammer: '⚡ <b>HAMMER REVERSAL · LIVE</b>',
 };
-export const PATTERN_ICON: Record<string, string> = { double_bottom: 'Ⓦ', hammer: '🔨', db_forming: '📍' };
+export const PATTERN_ICON: Record<string, string> = { double_bottom: 'Ⓦ', hammer: '🔨', db_forming: '📍', dump: '🩸' };
 const PATTERN_SHORT: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'DB forming' };
 
 /** Photo caption for a new alert (Telegram caps captions at 1024 chars). */
@@ -162,8 +162,32 @@ export const menuKeyboard: ReplyKeyboard = {
   is_persistent: true,
 };
 
-export const PATTERNS = ['double_bottom', 'hammer', 'db_forming'] as const;
-export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming' };
+/** Sudden one-candle drop (jobs/dumps.ts). Text only: there is no pattern to chart. */
+export function dumpMessage(d: { token: { symbol: string; name: string; address: string }; timeframe: string; open: number; price: number; dropPct: number; possibleRug: boolean; marketCap: number; liquidityUsd: number }): string {
+  return [
+    d.possibleRug ? `⚠️ <b>SUDDEN DROP · POSSIBLE RUG</b> · <b>${d.timeframe}</b>` : `🩸 <b>SUDDEN DROP</b> · <b>${d.timeframe}</b>`,
+    ``,
+    `<b>$${esc(d.token.symbol)}</b> · ${esc(d.token.name.slice(0, 40))}`,
+    `<code>${d.token.address}</code>`,
+    ``,
+    `📉 <b>${pct(-d.dropPct)}</b> in one ${d.timeframe} candle (still open)`,
+    `💰 MC <b>${usd(d.marketCap)}</b>   💧 Liq <b>${usd(d.liquidityUsd)}</b>`,
+    ``,
+    `<pre>${esc(`${pad('Open', 8)}${price(d.open)}\n${pad('Now', 8)}${price(d.price)}`)}</pre>`,
+    d.possibleRug
+      ? `<i>Fell more than half in one candle: often a rug pull or a big holder dumping. Check liquidity and holders first.</i>`
+      : `<i>Could be a dip or the start of a rug: check liquidity and holders before buying.</i>`,
+  ].join('\n');
+}
+
+export function linksKeyboard(token: string, pair: string): InlineKeyboard {
+  return alertKeyboard(0, token, pair).slice(0, 2);
+}
+
+export const PATTERNS = ['double_bottom', 'hammer', 'db_forming', 'dump'] as const;
+/** New chats start without the early "forming" heads-up: live data 1-3 Oct 2026 had 40 of 52 hit the stop first. */
+export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 'db_forming');
+export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming', dump: 'Sudden drop' };
 
 export function welcomeMessage(cfg: AppConfig): string {
   return [

@@ -8,8 +8,8 @@ Everything runs on free, keyless APIs.
 
 | Stage | Every | Source | Notes |
 |---|---|---|---|
-| Discovery | 10 min | DexScreener (boosts, profiles, takeovers) + GeckoTerminal (trending, top volume) + Jupiter (top trending/traded/organic, 1h/6h/24h) + PumpPortal websocket (every pump.fun graduation, real time) → DexScreener `tokens/v1` for MC/liq/vol/age | Every address ever surfaced goes into a candidate pool that is re-checked each cycle for 7 days, so tokens that are too young/small today join automatically later. No cap on watchlist size. Keeps MC ≥ $200k, liq ≥ $50k, vol24h ≥ $100k, pair age ≥ 24h. |
-| Rug filter | once / 24h per token | Solana RPC `getAccountInfo` (authorities) + RugCheck report (holders, LP/locker accounts, risks, score). RPC `getTokenLargestAccounts` is fallback only | Mint + freeze revoked, top-10 holders < 30% excluding AMM/LP vaults, lockers and burn addresses, RugCheck `score_normalised` ≤ 50, no `danger` risks, not rugged. API failures give `error` (retried after 1h), never `pass`. |
+| Discovery | 10 min | DexScreener (boosts, profiles, takeovers) + GeckoTerminal (trending, top volume) + Jupiter (top trending/traded/organic, 1h/6h/24h) + PumpPortal websocket (every pump.fun graduation, real time) → DexScreener `tokens/v1` for MC/liq/vol/age | Every address ever surfaced goes into a candidate pool that is re-checked each cycle for 7 days, so tokens that are too young/small today join automatically later. No cap on watchlist size. Keeps MC $100k–$3M, liq ≥ $50k, vol24h ≥ $50k. |
+| Rug filter | once / 24h per token | Solana RPC `getAccountInfo` (authorities) + RugCheck report (holders, LP/locker accounts, risks, score). RPC `getTokenLargestAccounts` is fallback only | Mint + freeze revoked, top-10 holders < 40% excluding AMM/LP vaults, lockers and burn addresses, RugCheck `score_normalised` ≤ 50, no `danger` risks, not rugged. API failures give `error` (retried after 1h), never `pass`. |
 | Live on-chain candles | continuous | Solana websocket `accountSubscribe` on each pool's vaults (+ pool account for concentrated liquidity) | History seeded once from GeckoTerminal, then 15m candles are built from chain updates. Detector runs every minute on every live pool. See below. |
 | GT rotation | 5 min | GeckoTerminal 15m OHLCV (200 candles) | Only for tokens whose pool can't be tracked on-chain (unsupported DEX, Token-2022 UI-scaled mints, failed sanity check). |
 | Alert | on detection | Telegram Bot API | Fresh price/MC from DexScreener, 12h cooldown per token. |
@@ -23,7 +23,7 @@ Why: GeckoTerminal (the only free candle API) allows ~5 calls/min, i.e. each tok
 - **Self-checks per pool, or it falls back to GT rotation:** vaults must hold the pool's two mints; Token-2022 mints with interest-bearing/scaled-UI extensions are excluded (raw ≠ displayed price); chain price must be within 15% of GeckoTerminal's last close at every seed.
 - **Volume** = quote-vault change in slots where the two vaults moved in opposite directions (a swap). Same-direction moves (add/remove liquidity, fee claims) are not counted. Swaps that cancel out inside one ~400ms slot are invisible this way, so live volume can under-count.
 - **Because of that, live candles only pre-screen.** The breakout-volume threshold is relaxed to 60% for the pre-screen; every hit is then re-checked on GeckoTerminal candles with the exact rules before any alert is sent. Alerts are never based on live candles alone.
-- **Re-sync every 2h** from GeckoTerminal (and immediately after any websocket gap). Each re-sync measures live vs GT accuracy (close/high/low error, % of volume captured), shown in `/status`.
+- **Re-sync every 6h** (low priority: first seeds, scans and confirmations go first) from GeckoTerminal (and immediately after any websocket gap). Each re-sync measures live vs GT accuracy (close/high/low error, % of volume captured), shown in `/status`.
 - Quote tokens (SOL, USDC, meme/stock quotes) are priced in USD from DexScreener every minute.
 
 ## Live triggers and early alerts (`src/jobs/setups.ts`)
@@ -37,6 +37,11 @@ closes). So every scan also **arms setups**:
 - **Hammer on the last closed candle** → armed for the next candle; fires when price breaks the hammer's high.
 - **📍 DOUBLE BOTTOM FORMING** (early heads-up, switchable in My alerts) is sent when a setup arms while its second low
   is fresh. When that setup later breaks out, the bot replies under the early alert.
+- **Late entries are skipped**: a breakout alert is only sent if, at the live price, the distance to target is at
+  least the distance to the stop (`alerts.minRewardToRisk`). Live data 1–3 Oct 2026: breakouts with reward ≥ risk
+  averaged +23.7% per alert, the rest +0.4%.
+- **📍 Forming alerts are off by default** for new chats (40 of 52 resolved ones hit the stop first, about break-even
+  on average). Each chat can switch them on in My alerts.
 - Setups expire (double bottom: after `maxCandlesAfterSecondLow` candles; hammer: after the next candle) or are dropped
   if price hits the stop first. Close-based detection still runs as a fallback; cooldowns stop duplicates.
 
@@ -44,9 +49,17 @@ Real example (bukangi, 2 Oct 2026, 15m): lows 307K/314K MC, neckline 414K. Old c
 Replayed on the real candles: early alert at **329K** (05:15 UTC), live neckline cross at **~415K** (08:45 candle,
 volume 2.87× average).
 
+## Sudden drop alerts (`src/jobs/dumps.ts`, thresholds in `config.dumps`)
+
+Every 30 s the price of every watched token is sampled from DexScreener (~2 calls per sample for 60 tokens,
+no GeckoTerminal). **🩸 SUDDEN DROP** fires when one **5m or 15m** candle (UTC-aligned) is down **30% or more** from its
+open, while the candle is still open. Falls over 50% are labelled **⚠️ POSSIBLE RUG**. One alert per token, timeframe and candle; a 15m alert is skipped if the same
+fall was already sent on 5m. Text only, with DexScreener/Birdeye/Jupiter/Solscan buttons. Each alert is stored in
+the `dumps` table. Chats can switch it off ("Sudden drop" in My alerts).
+
 ## Token filters (current)
 
-- Market cap **$100K – $3M** (larger caps are dropped from the watchlist), liquidity ≥ $50K, 24h volume ≥ $100K.
+- Market cap **$100K – $3M** (larger caps are dropped from the watchlist), liquidity ≥ $50K, 24h volume ≥ $50K.
 - **No minimum age**: fresh pump.fun graduations qualify immediately (they still must pass every rug check).
 - Young tokens (< ~3.3 days, `youngTokenHours`) are fetched as **5m** candles, which also feed 15m/1h/4h, so a
   5-hour-old token is scanned on 5m right away. Older tokens use 15m candles (no 5m).
@@ -62,6 +75,7 @@ Limit: ~10 days of history means at most ~62 4h candles, so 4h signals are rare.
 
 ## Hammer rules (`src/patterns/hammer.ts`, thresholds in `config.hammer`)
 
+- Timeframes: **15m, 1h and 4h** only (`config.hammer.timeframes`); 5m hammers are not alerted.
 - Shape: lower wick ≥ 2× body and ≥ 60% of the candle's range; upper wick ≤ 15% of range.
 - Context: price fell ≥ 5% over the 6 candles before it, and the hammer's low is the lowest low of the last 20 candles.
 - Size/volume: range ≥ recent average range (14), volume ≥ recent average volume (20).

@@ -1,4 +1,4 @@
-import { fetchJson } from '../lib/http.js';
+import { fetchJson, type Priority } from '../lib/http.js';
 import type { Candle } from '../patterns/types.js';
 import { limiters } from './limiters.js';
 
@@ -45,7 +45,7 @@ export const geckoterminal = {
   async ohlcv(
     pool: string,
     tokenAddress: string,
-    opts: { timeframe: 'minute' | 'hour' | 'day'; aggregate: number; limit: number; before?: number },
+    opts: { timeframe: 'minute' | 'hour' | 'day'; aggregate: number; limit: number; before?: number; priority?: Priority },
   ): Promise<Candle[]> {
     const qs = new URLSearchParams({
       aggregate: String(opts.aggregate),
@@ -56,6 +56,7 @@ export const geckoterminal = {
     if (opts.before) qs.set('before_timestamp', String(opts.before));
     const res = await fetchJson<OhlcvResponse>(`${BASE}/networks/${NETWORK}/pools/${pool}/ohlcv/${opts.timeframe}?${qs}`, {
       limiter: limiters.gecko,
+      priority: opts.priority,
       cacheTtlMs: 60_000, // upstream itself refreshes about once a minute
     });
     const list = res.data?.attributes?.ohlcv_list ?? [];

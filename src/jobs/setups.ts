@@ -94,7 +94,7 @@ export async function armFromCandles(db: Db, token: WatchToken, tf: Timeframe, c
     }
   }
 
-  const h = detectHammerSetup(candles, config.hammer);
+  const h = config.hammer.timeframes.includes(tf) ? detectHammerSetup(candles, config.hammer) : null;
   if (h) {
     const id = db.insertSetup({
       token_address: token.address,

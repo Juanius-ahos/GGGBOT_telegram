@@ -68,6 +68,7 @@ async function finalize(db: Db, a: AlertRow, livePrice: number | null, notifier:
       aggregate: useHourly ? 1 : config.scan.aggregate,
       limit: Math.min(1000, Math.ceil((windowH * 3600) / candleSec) + 4),
       before,
+      priority: 'low',
     });
   } catch (err) {
     log.warn({ id: a.id, err: errMsg(err) }, 'candles for resolution unavailable; using sampled prices');

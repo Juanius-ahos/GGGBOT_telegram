@@ -89,7 +89,7 @@ export function findSignals(
   if (candles.length === 0) return out;
   const last = candles[candles.length - 1];
   let gotDb = false;
-  let gotHammer = false;
+  let gotHammer = !cfg.hammer.timeframes.includes(tf);
   for (let back = 0; back < lookback && candles.length - back > 0; back++) {
     const slice = candles.slice(0, candles.length - back);
     if (!gotDb) {

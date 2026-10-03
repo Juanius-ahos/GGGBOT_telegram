@@ -8,14 +8,21 @@ export class HttpError extends Error {
   }
 }
 
+export type Priority = 'high' | 'low';
+
+/** A low-priority request waiting longer than this is served like a high one, so it can't starve. */
+const LOW_PRIORITY_MAX_WAIT_MS = 10 * 60_000;
+
 /**
  * Serial request queue that spaces calls evenly to stay under `perMinute`.
+ * High-priority requests go first; low ones (background refreshes) use the slots left over.
  * A 429 pauses the whole queue (`cooldown`) and widens the spacing (`penalize`, up to 4x);
  * successes slowly bring it back to the configured rate (`reward`). Free APIs often enforce
  * less than they document, so the limiter adapts instead of trusting the number.
  */
 export class RateLimiter {
-  private chain: Promise<unknown> = Promise.resolve();
+  private readonly waiting: Record<Priority, { at: number; go: () => void }[]> = { high: [], low: [] };
+  private pumping = false;
   private nextSlot = 0;
   private pausedUntil = 0;
   private pending = 0;
@@ -59,16 +66,32 @@ export class RateLimiter {
     this.pausedUntil = Math.max(this.pausedUntil, Date.now() + ms);
   }
 
-  schedule<T>(fn: () => Promise<T>): Promise<T> {
+  schedule<T>(fn: () => Promise<T>, priority: Priority = 'high'): Promise<T> {
     this.pending++;
-    const run = this.chain.then(async () => {
-      const wait = Math.max(this.nextSlot, this.pausedUntil) - Date.now();
-      if (wait > 0) await sleep(wait);
-      this.nextSlot = Date.now() + this.currentIntervalMs;
-    });
-    // The chain only carries the spacing; the work itself runs after its slot is reserved.
-    this.chain = run.catch(() => undefined);
-    return run.then(fn).finally(() => this.pending--);
+    const slot = new Promise<void>((go) => this.waiting[priority].push({ at: Date.now(), go }));
+    void this.pump();
+    return slot.then(fn).finally(() => this.pending--);
+  }
+
+  /** Hands out slots one at a time; re-checks the queues after every wait so a new high request jumps ahead. */
+  private async pump(): Promise<void> {
+    if (this.pumping) return;
+    this.pumping = true;
+    try {
+      while (this.waiting.high.length || this.waiting.low.length) {
+        const wait = Math.max(this.nextSlot, this.pausedUntil) - Date.now();
+        if (wait > 0) {
+          await sleep(wait);
+          continue;
+        }
+        const low = this.waiting.low[0];
+        const next = low && Date.now() - low.at > LOW_PRIORITY_MAX_WAIT_MS ? this.waiting.low.shift() : (this.waiting.high.shift() ?? this.waiting.low.shift());
+        this.nextSlot = Date.now() + this.currentIntervalMs;
+        next?.go();
+      }
+    } finally {
+      this.pumping = false;
+    }
   }
 }
 
@@ -106,6 +129,8 @@ export interface FetchJsonOptions {
   retries?: number;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  /** 'low' = background work that should yield to everything else on this limiter. */
+  priority?: Priority;
 }
 
 function retryAfterMs(res: Response): number | null {
@@ -144,6 +169,7 @@ export async function fetchJson<T>(url: string, opts: FetchJsonOptions): Promise
           body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
           signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
         }),
+        opts.priority,
       );
 
       if (res.ok) {

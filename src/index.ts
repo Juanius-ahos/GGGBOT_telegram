@@ -12,6 +12,7 @@ import { PumpPortalStream } from './sources/pumpportal.js';
 import { LiveTracker } from './onchain/tracker.js';
 import { runLiveScan } from './jobs/liveScan.js';
 import { runSetupWatcher } from './jobs/setups.js';
+import { DumpDetector, runDumpWatcher } from './jobs/dumps.js';
 import { restoreIfMissing, SnapshotSaver } from './db/snapshot.js';
 import { startHealthServer, startSelfPing } from './health.js';
 import { limiters } from './sources/limiters.js';
@@ -122,6 +123,10 @@ async function main(): Promise<void> {
     await runSetupWatcher(db, tracker, notifier, stopped);
     db.pruneSetups(Date.now() - 7 * 86_400_000);
   }, 20_000);
+
+  // Sudden one-candle drops (5m / 15m) on every watched token, from DexScreener prices.
+  const dumps = new DumpDetector();
+  scheduler.add('dumps', config.dumps.sampleIntervalMs, () => runDumpWatcher(db, dumps, notifier, stopped), 30_000);
 
   // Web port + keep-awake for hosts that sleep idle web services (Render sets PORT and RENDER_EXTERNAL_URL).
   healthStatus = () => ({

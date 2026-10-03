@@ -60,6 +60,8 @@ export interface HammerConfig {
   /** Confirmation candle must close above the hammer's 'high' (strict) or its closing price ('close', textbook). */
   confirmAbove: 'high' | 'close';
   invalidationBufferPct: number;
+  /** Timeframes hammers are detected and alerted on. */
+  timeframes: readonly string[];
   /** Target = entry + this x (entry - stop). */
   rewardToRisk: number;
 }
@@ -129,7 +131,7 @@ export const config = {
     /** Skip large caps: only small/mid caps up to this market cap. */
     maxMarketCapUsd: 3_000_000,
     minLiquidityUsd: 50_000,
-    minVolume24hUsd: 100_000,
+    minVolume24hUsd: 50_000,
     /** 0 = no age requirement (fresh launches qualify as soon as they pass every other filter). */
     minPairAgeHours: 0,
   },
@@ -138,7 +140,7 @@ export const config = {
     cacheHours: 24,
     /** Retry a token whose check errored (API down) after this long. */
     errorRetryMinutes: 60,
-    maxTop10HolderPct: 30,
+    maxTop10HolderPct: 40,
     /** RugCheck score_normalised (0 = safest). */
     maxRugcheckScore: 50,
     /** Reject if RugCheck reports any risk at this level. */
@@ -194,6 +196,7 @@ export const config = {
     requireConfirmation: true,
     confirmAbove: 'high' as 'high' | 'close',
     invalidationBufferPct: 0.01,
+    timeframes: ['15m', '1h', '4h'],
     rewardToRisk: 2,
   } satisfies HammerConfig,
 
@@ -233,7 +236,8 @@ export const config = {
     /** Build candles from on-chain pool updates (websocket) for supported pools. */
     enabled: process.env.LIVE_TRACKING !== '0',
     /** Re-seed each live pool from GeckoTerminal this often to correct any drift. */
-    resyncHours: envNum('LIVE_RESYNC_HOURS', 2),
+    // 2h re-syncs of ~50 pools used nearly all of the GeckoTerminal calls Render's shared IP gets (~25/h).
+    resyncHours: envNum('LIVE_RESYNC_HOURS', 6),
     /** Reject live tracking when the on-chain price and GeckoTerminal's last close differ by more. */
     maxSeedDeviationPct: 15,
     /**
@@ -250,6 +254,23 @@ export const config = {
   alerts: {
     cooldownHours: 12,
     recentCount: 10,
+    /**
+     * Breakout alerts are skipped when, at the live price, the distance to target is less than this x the
+     * distance to the stop (late entries). Live data 1-3 Oct 2026: R:R >= 1 averaged +23.7%, R:R < 1 +0.4%.
+     */
+    minRewardToRisk: 1,
+  },
+
+  /**
+   * Sudden drop: the price of a watched token falls at least this much within one candle (open -> live price),
+   * sampled from DexScreener so it covers every watched token, live on-chain or not.
+   */
+  dumps: {
+    sampleIntervalMs: 30_000,
+    timeframes: ['5m', '15m'] as const,
+    minDropPct: 30,
+    /** Falls deeper than this are still alerted, labelled as a possible rug. */
+    rugLabelAbovePct: 50,
   },
 
   tracking: {

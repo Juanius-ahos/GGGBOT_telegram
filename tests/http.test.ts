@@ -17,6 +17,18 @@ describe('RateLimiter', () => {
     await expect(l.schedule(async () => 42)).resolves.toBe(42);
   });
 
+  it('serves waiting high-priority calls before low ones', async () => {
+    const l = new RateLimiter('t', 1200); // 50ms spacing
+    const order: string[] = [];
+    const first = l.schedule(async () => order.push('first'));
+    const rest = [
+      l.schedule(async () => order.push('low'), 'low'),
+      l.schedule(async () => order.push('high'), 'high'),
+    ];
+    await Promise.all([first, ...rest]);
+    expect(order).toEqual(['first', 'high', 'low']);
+  });
+
   it('widens spacing on 429 (max 4x) and recovers after successes', () => {
     const l = new RateLimiter('t', 60); // 1000ms
     for (let i = 0; i < 10; i++) l.penalize();

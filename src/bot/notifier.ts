@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AlertRow } from '../db/index.js';
+import type { AlertRow, WatchToken } from '../db/index.js';
 import { errMsg } from '../lib/http.js';
 import { logger } from '../logger.js';
 import type { Signal } from '../patterns/signals.js';
 import type { Candle } from '../patterns/types.js';
 import { renderChartPng } from './chart.js';
-import { alertCaption } from './format.js';
+import { alertCaption, dumpMessage } from './format.js';
 
 export interface AlertPayload {
   alertId: number;
@@ -16,10 +16,25 @@ export interface AlertPayload {
   candles: Candle[];
 }
 
+/** A sudden single-candle drop on a watched token (jobs/dumps.ts). */
+export interface DumpPayload {
+  token: WatchToken;
+  pairAddress: string;
+  timeframe: '5m' | '15m';
+  open: number;
+  price: number;
+  dropPct: number;
+  possibleRug: boolean;
+  marketCap: number;
+  liquidityUsd: number;
+}
+
 /** Where alerts and outcome updates go: Telegram in production, files in DRY_RUN. */
 export interface Notifier {
   alert(p: AlertPayload): Promise<number>;
   followUp(alertId: number, html: string): Promise<void>;
+  /** Text-only sudden-drop alert; returns the number of chats it reached. */
+  dump(d: DumpPayload): Promise<number>;
 }
 
 /** Renders the chart; returns null (text-only alert) if rendering fails for any reason. */
@@ -48,5 +63,10 @@ export class DryRunNotifier implements Notifier {
 
   async followUp(alertId: number, html: string): Promise<void> {
     logger.info({ alertId, message: html.replace(/<[^>]+>/g, '') }, 'DRY_RUN follow-up (not sent)');
+  }
+
+  async dump(d: DumpPayload): Promise<number> {
+    logger.info({ message: dumpMessage(d).replace(/<[^>]+>/g, '') }, 'DRY_RUN sudden drop (not sent)');
+    return 0;
   }
 }

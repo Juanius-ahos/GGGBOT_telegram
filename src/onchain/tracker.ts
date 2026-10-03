@@ -365,6 +365,8 @@ export class LiveTracker {
           timeframe: 'minute',
           aggregate: baseIntervalFor(p.token.pair_created_at, config.youngTokenHours).aggregate,
           limit: config.scan.candleLimit,
+          // Periodic re-syncs yield to first seeds, scans and confirmations.
+          priority: p.seededAt > 0 ? 'low' : 'high',
         });
     if (candles.length === 0) return false;
     const chainPrice = this.priceUsd(p);

@@ -59,7 +59,7 @@ function harness(price: number, formingVolume: number) {
   });
   const sent: AlertPayload[] = [];
   const followUps: string[] = [];
-  const notifier: Notifier = { alert: async (p) => (sent.push(p), 1), followUp: async (_id, html) => void followUps.push(html) };
+  const notifier: Notifier = { alert: async (p) => (sent.push(p), 1), followUp: async (_id, html) => void followUps.push(html), dump: async () => 0 };
   const nowSec = Math.floor(Date.now() / 1000);
   const series = new CandleSeries(900);
   const bucket = Math.floor(nowSec / 900) * 900;

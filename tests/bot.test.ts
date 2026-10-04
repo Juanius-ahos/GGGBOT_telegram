@@ -91,3 +91,22 @@ describe('My alerts preferences', () => {
     expect(sent.at(-1)!.text).toContain('Settings');
   });
 });
+
+describe('update announcement', () => {
+  it('goes to every active subscriber once, never again (even after a restart on the same database)', async () => {
+    const { db, bot, sent, say } = harness();
+    await say(1, '/start');
+    await say(2, '/start');
+    await say(3, '/start');
+    await say(3, '/stop');
+    sent.length = 0;
+    expect(await bot.announceOnce()).toBe(2);
+    expect(sent.map((s) => s.chatId).sort()).toEqual([1, 2]);
+    expect(sent[0].text).toContain('whole Solana market');
+    expect(sent[0].text).toContain('Sudden drop');
+    sent.length = 0;
+    expect(await new Bot(db, 'TEST').announceOnce()).toBeNull(); // a restarted bot sees it was already sent
+    expect(await bot.announceOnce()).toBeNull();
+    expect(sent).toHaveLength(0);
+  });
+});

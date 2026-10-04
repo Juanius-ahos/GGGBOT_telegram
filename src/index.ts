@@ -81,6 +81,9 @@ async function main(): Promise<void> {
       }
     }
     notifier = bot;
+    // One-time "what's new" to subscribers; snapshot right away so the next deploy knows it was sent.
+    const announced = await bot.announceOnce().catch((err) => (logger.warn({ err: errMsg(err) }, 'announcement failed'), null));
+    if (announced !== null) void saver?.save(true);
   }
 
   // Free real-time feed of pump.fun graduations -> candidate pool (checked on the next discovery).

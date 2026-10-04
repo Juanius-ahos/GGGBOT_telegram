@@ -20,15 +20,28 @@ const MAX_DEXPAPRIKA_QUEUE = 2;
 type CandleToken = Pick<WatchToken, 'pair_address' | 'address' | 'pair_created_at' | 'volume_24h' | 'symbol'>;
 
 /**
+ * GeckoTerminal is refusing us (spacing pushed to its maximum after 429s, or calls piling up). On shared-IP hosts
+ * like Render this is the normal state: measured Oct 2026, 2 of 16 calls answered.
+ */
+export function geckoDegraded(): boolean {
+  const g = limiters.gecko;
+  return g.queued >= 2 || g.intervalMs >= Math.ceil(60_000 / config.rateLimits.geckoterminal) * 4;
+}
+
+/**
  * Fetch base candles for a token: 5m while young, 15m after (one call). 15m comes from DexPaprika when a key is
  * set (its own quota, volume rescaled to DexScreener's); 5m and any DexPaprika failure fall back to GeckoTerminal.
+ * While GeckoTerminal is degraded, young tokens are fetched as 15m from DexPaprika instead (no 5m view on that
+ * check, but 15m/1h/4h still run) rather than waiting minutes on GeckoTerminal retries.
  */
 export async function fetchBase(t: CandleToken): Promise<{ candles: Candle[]; sec: number }> {
   const b = baseIntervalFor(t.pair_created_at, config.youngTokenHours);
-  if (dexpaprika.supports(b.sec) && limiters.dexpaprika.queued < MAX_DEXPAPRIKA_QUEUE) {
+  const degraded = geckoDegraded();
+  const sec = b.sec < 900 && degraded && dexpaprika.supports(900) ? 900 : b.sec;
+  if (dexpaprika.supports(sec) && (degraded || limiters.dexpaprika.queued < MAX_DEXPAPRIKA_QUEUE)) {
     try {
-      const raw = await dexpaprika.ohlcv(t.pair_address, t.address, { intervalSec: b.sec, limit: config.scan.candleLimit });
-      if (raw.length) return { candles: scaleVolume(raw, t.volume_24h), sec: b.sec };
+      const raw = await dexpaprika.ohlcv(t.pair_address, t.address, { intervalSec: sec, limit: config.scan.candleLimit });
+      if (raw.length) return { candles: scaleVolume(raw, t.volume_24h), sec };
     } catch (err) {
       log.debug({ token: t.symbol, err: errMsg(err) }, 'dexpaprika candles failed; using GeckoTerminal');
     }

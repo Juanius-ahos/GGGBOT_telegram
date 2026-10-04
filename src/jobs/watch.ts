@@ -36,17 +36,24 @@ function pairFor(t: WatchToken, pairs: DexPair[]): DexPair | undefined {
 
 /** Coins waiting for a chart check, most active first. */
 export class ChartQueue {
-  private waiting = new Map<string, number>();
+  private waiting = new Map<string, { score: number; at: number }>();
 
-  add(address: string, score: number): void {
-    this.waiting.set(address, Math.max(score, this.waiting.get(address) ?? 0));
+  /** `staleMs`: a coin not flagged again for this long has calmed down and leaves the queue. */
+  constructor(private staleMs = 5 * 60_000) {}
+
+  /** Latest score wins: the watch re-flags still-active coins every minute. */
+  add(address: string, score: number, now = Date.now()): void {
+    this.waiting.set(address, { score, at: now });
   }
 
-  /** Highest score first. */
-  take(): string | undefined {
+  /** Highest current score first; coins that stopped being active are dropped. */
+  take(now = Date.now()): string | undefined {
     let best: string | undefined;
     let bestScore = -1;
-    for (const [a, s] of this.waiting) if (s > bestScore) [best, bestScore] = [a, s];
+    for (const [a, e] of this.waiting) {
+      if (now - e.at > this.staleMs) this.waiting.delete(a);
+      else if (e.score > bestScore) [best, bestScore] = [a, e.score];
+    }
     if (best) this.waiting.delete(best);
     return best;
   }

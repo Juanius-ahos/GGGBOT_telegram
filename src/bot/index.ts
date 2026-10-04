@@ -4,7 +4,7 @@ import { errMsg } from '../lib/http.js';
 import { logger } from '../logger.js';
 import { fetchBestPairs } from '../sources/dexscreener.js';
 import {
-  alertCaption, alertKeyboard, DEFAULT_PATTERNS, dumpMessage, helpMessage, linksKeyboard, MENU, menuKeyboard, myAlertsPanel, PATTERN_NAME, PATTERNS, pct, price,
+  alertCaption, alertKeyboard, ANNOUNCEMENT_ID, announcementMessage, DEFAULT_PATTERNS, dumpMessage, helpMessage, linksKeyboard, MENU, menuKeyboard, myAlertsPanel, PATTERN_NAME, PATTERNS, pct, price,
   recentMessage, settingsMessage, statsMessage, statusMessage, welcomeMessage, type StatusData,
 } from './format.js';
 import { tryRenderChart, type AlertPayload, type DumpPayload, type Notifier } from './notifier.js';
@@ -92,6 +92,25 @@ export class Bot implements Notifier {
       if (r.status === 'ok') delivered++;
       this.handleBlocked(chatId, r);
     }
+    return delivered;
+  }
+
+  /**
+   * Sends the current "what's new" message once to every subscriber, with the current menu keyboard (refreshes
+   * buttons that changed). Marked as sent before sending, so a crash or restart can't send it twice.
+   */
+  async announceOnce(): Promise<number | null> {
+    const key = `announce:${ANNOUNCEMENT_ID}`;
+    if (this.db.getKv(key)) return null;
+    this.db.setKv(key, String(Date.now()));
+    const html = announcementMessage(config);
+    let delivered = 0;
+    for (const chatId of this.db.activeSubscribers()) {
+      const r = await this.client.send(chatId, html, { replyKeyboard: menuKeyboard });
+      if (r.status === 'ok') delivered++;
+      this.handleBlocked(chatId, r);
+    }
+    log.info({ id: ANNOUNCEMENT_ID, delivered }, 'announcement sent');
     return delivered;
   }
 

@@ -24,11 +24,18 @@ describe('activity score', () => {
 });
 
 describe('chart queue', () => {
-  it('hands out the most active coin first, each once, keeping its highest score', () => {
+  it('hands out the most active coin first, each once, using its latest score', () => {
     const q = new ChartQueue();
-    q.add('A', 1);
-    q.add('B', 3);
-    q.add('A', 5);
-    expect([q.take(), q.take(), q.take()]).toEqual(['A', 'B', undefined]);
+    q.add('A', 1, 0);
+    q.add('B', 3, 0);
+    q.add('A', 5, 0);
+    expect([q.take(0), q.take(0), q.take(0)]).toEqual(['A', 'B', undefined]);
+  });
+
+  it('drops coins that stopped being active, so an old spike never outranks a fresh one', () => {
+    const q = new ChartQueue(5 * 60_000);
+    q.add('OLD', 50, 0);
+    q.add('FRESH', 2, 9 * 60_000);
+    expect([q.take(10 * 60_000), q.take(10 * 60_000)]).toEqual(['FRESH', undefined]);
   });
 });

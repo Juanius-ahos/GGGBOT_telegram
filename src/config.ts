@@ -312,7 +312,8 @@ export const config = {
    */
   watch: {
     intervalMs: envNum('WATCH_INTERVAL_SEC', 60) * 1000,
-    sweepEveryMs: 60 * 60_000,
+    // A safety net (discovery feeds already catch most coins); every 2h leaves more DexPaprika credits for charts.
+    sweepEveryMs: 2 * 3_600_000,
     /** 5-minute volume at least this many times the 6h average pace. */
     volumeSpike: 2,
     /** ...or price moved this much (either way) in 5 minutes / 1 hour. */

@@ -189,6 +189,25 @@ export const PATTERNS = ['double_bottom', 'hammer', 'db_forming', 'dump'] as con
 export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 'db_forming');
 export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming', dump: 'Sudden drop' };
 
+/** One-time "what's new" message for existing subscribers (sent once per `ANNOUNCEMENT_ID`). */
+export const ANNOUNCEMENT_ID = '2026-10-04-whole-market';
+export function announcementMessage(cfg: AppConfig): string {
+  return [
+    `🆕 <b>GGG_BOT update</b>`,
+    ``,
+    `🌍 <b>Now scanning the whole Solana market.</b> Every 2 hours I list every Solana coin with enough volume and liquidity, on every DEX (about 500 coins), on top of the trending feeds and every pump.fun graduation. Coins inside the filters are checked every minute.`,
+    `<i>Filters: MC ${usd(cfg.market.minMarketCapUsd)}–${usd(cfg.market.maxMarketCapUsd)} · liquidity ≥ ${usd(cfg.market.minLiquidityUsd)} · 24h volume ≥ ${usd(cfg.market.minVolume24hUsd)} · rug check</i>`,
+    ``,
+    `🩸 <b>New: Sudden drop alerts.</b> A coin falling ${cfg.dumps.minDropPct}%+ in one 5m or 15m candle. Over ${cfg.dumps.rugLabelAbovePct}% is marked ⚠️ POSSIBLE RUG.`,
+    `🔨 <b>Hammers</b> now on 15m, 1h and 4h only.`,
+    `⏭ <b>Late breakouts are skipped:</b> no alert when the target is already closer than the stop.`,
+    `📍 <b>Early "forming" alerts are off by default.</b> Turn them on in ${MENU.myAlerts}.`,
+    `🔕 <b>One alert per event:</b> no more 🎯 / 🛑 / recap follow-ups.`,
+    ``,
+    `Choose what you get in ${MENU.myAlerts}. Not financial advice.`,
+  ].join('\n');
+}
+
 export function welcomeMessage(cfg: AppConfig): string {
   return [
     `👁 <b>Welcome to GGG_BOT</b>`,

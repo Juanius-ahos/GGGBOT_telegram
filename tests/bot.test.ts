@@ -99,8 +99,8 @@ describe('update announcement', () => {
     sent.length = 0;
     expect(await bot.announceOnce()).toBe(2);
     expect(sent.map((s) => s.chatId).sort()).toEqual([1, 2]);
-    expect(sent[0].text).toContain('whole Solana market');
-    expect(sent[0].text).toContain('Sudden drop');
+    expect(sent[0].text).toContain('Faster breakouts');
+    expect(sent[0].text).toContain('No late alerts');
     sent.length = 0;
     expect(await new Bot(db, 'TEST').announceOnce()).toBeNull(); // a restarted bot sees it was already sent
     expect(await bot.announceOnce()).toBeNull();

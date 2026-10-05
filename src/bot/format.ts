@@ -194,22 +194,24 @@ export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 
 export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming', dump: 'Sudden drop' };
 
 /** One-time "what's new" message for existing subscribers (sent once per `ANNOUNCEMENT_ID`). */
-export const ANNOUNCEMENT_ID = '2026-10-04-whole-market';
+export const ANNOUNCEMENT_ID = '2026-10-05-speed';
+const NL = String.fromCharCode(10);
 export function announcementMessage(cfg: AppConfig): string {
   return [
-    `🆕 <b>GGG_BOT update</b>`,
+    `🆕 <b>GGG_BOT update: faster, fewer, better alerts</b>`,
     ``,
-    `🌍 <b>Now scanning the whole Solana market.</b> Every 2 hours I list every Solana coin with enough volume and liquidity, on every DEX (about 500 coins), on top of the trending feeds and every pump.fun graduation. Coins inside the filters are checked every minute.`,
-    `<i>Filters: MC ${usd(cfg.market.minMarketCapUsd)}–${usd(cfg.market.maxMarketCapUsd)} · liquidity ≥ ${usd(cfg.market.minLiquidityUsd)} · 24h volume ≥ ${usd(cfg.market.minVolume24hUsd)} · rug check</i>`,
+    `⚡ <b>Faster breakouts.</b> Coins with a setup ready are now watched directly on the Solana chain (price every few seconds). The alert goes out on the first price past the breakout level.`,
     ``,
-    `🩸 <b>New: Sudden drop alerts.</b> A coin falling ${cfg.dumps.minDropPct}%+ in one 5m or 15m candle. Over ${cfg.dumps.rugLabelAbovePct}% is marked ⚠️ POSSIBLE RUG.`,
-    `🔨 <b>Hammers</b> now on 15m, 1h and 4h only.`,
-    `⏭ <b>Late breakouts are skipped:</b> no alert when the target is already closer than the stop.`,
-    `📍 <b>Early "forming" alerts are off by default.</b> Turn them on in ${MENU.myAlerts}.`,
-    `🔕 <b>One alert per event:</b> no more 🎯 / 🛑 / recap follow-ups.`,
+    `⏭ <b>No late alerts.</b> If price is already more than ${cfg.alerts.maxChasePct}% past the breakout level, you won't get the alert: in our live results, late entries lost money.`,
     ``,
-    `Choose what you get in ${MENU.myAlerts}. Not financial advice.`,
-  ].join('\n');
+    `🩸 <b>Rugs removed from drop alerts.</b> Falls over ${cfg.dumps.rugLabelAbovePct}% or down to under $${Math.round(cfg.dumps.minMcAfterUsd / 1000)}K market cap are rugs, not dips, so they're no longer sent. Real ${cfg.dumps.minDropPct}–${cfg.dumps.rugLabelAbovePct}% drops still are.`,
+    ``,
+    `🎯 <b>Default alerts:</b> double-bottom breakouts + sudden drops. Early "forming" heads-ups and hammers are opt-in in ${MENU.myAlerts}. If you already picked your alerts, nothing changes for you.`,
+    ``,
+    `📊 <b>Why:</b> we checked all 200 alerts from 1–5 Oct against the real charts. Double-bottom breakouts caught within ${cfg.alerts.maxChasePct}% of the neckline reached their target before their stop 18 times out of 24. Small sample: not a guarantee.`,
+    ``,
+    `<i>Not financial advice. Always use the stop.</i>`,
+  ].join(NL);
 }
 
 export function welcomeMessage(cfg: AppConfig): string {

@@ -185,8 +185,12 @@ export function linksKeyboard(token: string, pair: string): InlineKeyboard {
 }
 
 export const PATTERNS = ['double_bottom', 'hammer', 'db_forming', 'dump'] as const;
-/** New chats start without the early "forming" heads-up: live data 1-3 Oct 2026 had 40 of 52 hit the stop first. */
-export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 'db_forming');
+/**
+ * Defaults from all 200 live alerts 1-5 Oct 2026, scored on real candles: double-bottom breakouts caught within 5% of
+ * the neckline won 75% (+13.1%/trade, n=24). Early heads-ups (+1.1%/trade in the 5-15% zone, ~break-even after fees)
+ * and hammers (EV ~0) are opt-in.
+ */
+export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 'hammer' && p !== 'db_forming');
 export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming', dump: 'Sudden drop' };
 
 /** One-time "what's new" message for existing subscribers (sent once per `ANNOUNCEMENT_ID`). */

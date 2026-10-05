@@ -93,6 +93,11 @@ export async function runWatch(db: Db, dumps: DumpDetector, queue: ChartQueue, n
       for (const d of dumps.observe(t.address, now, p)) {
         const marketCap = pair.marketCap ?? pair.fdv ?? t.market_cap;
         const liquidityUsd = pair.liquidity?.usd ?? t.liquidity_usd;
+        // Rugs (very deep falls, or nothing left) are not entries: not stored, not sent.
+        if (!config.dumps.alertRugs && (d.possibleRug || marketCap < config.dumps.minMcAfterUsd)) {
+          log.info({ token: t.symbol, tf: d.timeframe, dropPct: +d.dropPct.toFixed(1), marketCap }, 'rug-like fall; not alerted');
+          continue;
+        }
         db.insertDump({ token_address: t.address, symbol: t.symbol, timeframe: d.timeframe, candle_time: d.candleTime, open_price: d.open, price: d.price, drop_pct: d.dropPct, market_cap: marketCap, liquidity_usd: liquidityUsd, created_at: now });
         const delivered = await notifier
           .dump({ token: t, pairAddress: pair.pairAddress ?? t.pair_address, marketCap, liquidityUsd, ...d })

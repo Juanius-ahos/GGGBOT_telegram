@@ -52,7 +52,7 @@ interface Pool {
 }
 
 /** USD prices of quote tokens (SOL, USDC, meme quotes...), refreshed from DexScreener every minute. */
-class QuotePrices {
+export class QuotePrices {
   private prices = new Map<string, number>();
   private wanted = new Set<string>();
 

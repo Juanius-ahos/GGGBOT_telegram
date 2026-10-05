@@ -160,57 +160,57 @@ function chartData(s: SetupRow, tracker: LiveTracker | null, nowSec: number): { 
  * Every few seconds: check armed setups against the live price (on-chain for live pools, DexScreener otherwise).
  * Fires the breakout alert the moment price clears the neckline / hammer high.
  */
-export async function runSetupWatcher(db: Db, tracker: LiveTracker | null, notifier: Notifier, isStopped: () => boolean): Promise<void> {
-  const now = Date.now();
-  const nowSec = now / 1000;
-  const armed = db.armedSetups();
-  if (armed.length === 0) return;
+/** Setups being acted on right now (the websocket path and the poll can see the same cross). */
+const inFlight = new Set<number>();
+/** Setups whose early "forming" alert was already tried once. */
+const formingTried = new Set<number>();
 
-  const active: SetupRow[] = [];
-  for (const s of armed) {
-    if (s.expires_at < now) {
-      db.setSetupStatus(s.id, 'expired');
-      armedCharts.delete(s.id);
-    } else active.push(s);
+/**
+ * Checks one armed setup against a price: invalidation, early-zone heads-up, and the trigger cross.
+ * `pair` (DexScreener) supplies volume pace; when absent (websocket path) it's fetched only if the level is crossed.
+ */
+async function evaluateSetup(db: Db, s: SetupRow, price: number, pair: DexPair | undefined, tracker: LiveTracker | null, notifier: Notifier, nowSec: number): Promise<void> {
+  if (inFlight.has(s.id)) return;
+  const token = db.getToken(s.token_address);
+  if (!token || !token.active) {
+    db.setSetupStatus(s.id, 'expired');
+    return;
   }
-  if (!active.length) return;
-
-  const needDs = [...new Set(active.map((s) => s.token_address))].filter((a) => tracker?.priceNow(a) == null);
-  let ds = new Map<string, DexPair>();
-  if (needDs.length) {
-    try {
-      ds = await fetchBestPairs(needDs, 10_000);
-    } catch (err) {
-      log.warn({ err: errMsg(err) }, 'price check failed');
-    }
+  if (price <= s.invalidation) {
+    db.setSetupStatus(s.id, 'invalidated');
+    armedCharts.delete(s.id);
+    log.info({ token: token.symbol, pattern: s.pattern, tf: s.timeframe }, 'setup invalidated before trigger');
+    return;
   }
 
-  for (const s of active) {
-    if (isStopped()) break;
-    const token = db.getToken(s.token_address);
-    if (!token || !token.active) {
-      db.setSetupStatus(s.id, 'expired');
-      continue;
+  inFlight.add(s.id);
+  try {
+    // Early heads-up once price is in the zone just under the neckline (one attempt per setup).
+    if (s.pattern === 'double_bottom' && s.early_alert_id == null && !formingTried.has(s.id)) {
+      const below = ((s.trigger_level - price) / s.trigger_level) * 100;
+      const z = config.setups.formingZone;
+      if (below >= z.minBelowPct && below <= z.maxBelowPct) {
+        formingTried.add(s.id);
+        const data = chartData(s, tracker, nowSec);
+        if (data.db && data.candles.length) {
+          const sig = dbSignal(data.db, data.candles, s.timeframe, 'db_forming', 'forming', price, 0);
+          const alertId = await maybeAlert(db, token, sig, data.candles, notifier, 'forming-zone');
+          if (alertId) db.setSetupEarlyAlert(s.id, alertId);
+        }
+      }
     }
-    const pair = ds.get(s.token_address);
-    const price = tracker?.priceNow(s.token_address) ?? (pair ? Number(pair.priceUsd) || null : null);
-    if (!price) continue;
-    if (price <= s.invalidation) {
-      db.setSetupStatus(s.id, 'invalidated');
-      armedCharts.delete(s.id);
-      log.info({ token: token.symbol, pattern: s.pattern, tf: s.timeframe }, 'setup invalidated before trigger');
-      continue;
-    }
-    if (price < s.trigger_level * (1 + config.setups.crossBufferPct)) continue;
+
+    if (price < s.trigger_level * (1 + config.setups.crossBufferPct)) return;
 
     let volumeRatio = 0;
     if (s.pattern === 'double_bottom') {
+      if (!pair) pair = (await fetchBestPairs([s.token_address], 5_000).catch(() => new Map<string, DexPair>())).get(s.token_address);
       const v = volumePace(s, tracker, pair, nowSec);
       if (v) {
         volumeRatio = v.pace;
         if (v.pace < v.need) {
           log.debug({ token: token.symbol, tf: s.timeframe, pace: v.pace }, 'neckline crossed but volume pace too low; still armed');
-          continue;
+          return;
         }
       }
     }
@@ -228,7 +228,7 @@ export async function runSetupWatcher(db: Db, tracker: LiveTracker | null, notif
         firstLow: h.hammer.low, secondLow: h.hammer.low, neckline: h.hammer.high, hammer: h,
       };
     } else {
-      // No candles to draw (e.g. restarted since arming, not a live pool): text-only alert.
+      // No candles to draw (e.g. restarted since arming): text-only alert.
       signal = {
         pattern: s.pattern, timeframe: s.timeframe, trigger: 'cross', triggerIndex: 0, triggerTime: Math.floor(nowSec),
         entry: price, volumeRatio,
@@ -250,5 +250,67 @@ export async function runSetupWatcher(db: Db, tracker: LiveTracker | null, notif
     } catch (err) {
       log.error({ token: token.symbol, err: errMsg(err) }, 'trigger alert failed');
     }
+  } finally {
+    inFlight.delete(s.id);
+  }
+}
+
+/** Websocket path: a fresh on-chain price for `token` -> check its armed setups immediately. */
+export async function onLivePrice(db: Db, tracker: LiveTracker | null, notifier: Notifier, token: string, price: number): Promise<void> {
+  const nowMs = Date.now();
+  for (const s of db.armedSetups()) {
+    if (s.token_address !== token || s.expires_at < nowMs) continue;
+    await evaluateSetup(db, s, price, undefined, tracker, notifier, nowMs / 1000);
+  }
+}
+
+/** token -> pair address for every armed setup (what the real-time price feed should cover). */
+export function armedPairs(db: Db): Map<string, string> {
+  const out = new Map<string, string>();
+  const now = Date.now();
+  for (const s of db.armedSetups()) {
+    if (s.expires_at < now) continue;
+    const t = db.getToken(s.token_address);
+    if (t?.active) out.set(t.address, t.pair_address);
+  }
+  return out;
+}
+
+/**
+ * Every few seconds: check armed setups against the price (on-chain for live pools, DexScreener otherwise).
+ * Coins with a real-time feed are also checked on every on-chain update via onLivePrice.
+ */
+export async function runSetupWatcher(db: Db, tracker: LiveTracker | null, notifier: Notifier, isStopped: () => boolean): Promise<void> {
+  const now = Date.now();
+  const nowSec = now / 1000;
+  const armed = db.armedSetups();
+  if (armed.length === 0) return;
+
+  const active: SetupRow[] = [];
+  for (const s of armed) {
+    if (s.expires_at < now) {
+      db.setSetupStatus(s.id, 'expired');
+      armedCharts.delete(s.id);
+      formingTried.delete(s.id);
+    } else active.push(s);
+  }
+  if (!active.length) return;
+
+  const needDs = [...new Set(active.map((s) => s.token_address))].filter((a) => tracker?.priceNow(a) == null);
+  let ds = new Map<string, DexPair>();
+  if (needDs.length) {
+    try {
+      ds = await fetchBestPairs(needDs, 10_000);
+    } catch (err) {
+      log.warn({ err: errMsg(err) }, 'price check failed');
+    }
+  }
+
+  for (const s of active) {
+    if (isStopped()) break;
+    const pair = ds.get(s.token_address);
+    const price = tracker?.priceNow(s.token_address) ?? (pair ? Number(pair.priceUsd) || null : null);
+    if (!price) continue;
+    await evaluateSetup(db, s, price, pair, tracker, notifier, nowSec);
   }
 }

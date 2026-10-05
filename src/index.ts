@@ -12,7 +12,8 @@ import { PumpPortalStream } from './sources/pumpportal.js';
 import { LiveTracker } from './onchain/tracker.js';
 import { MarketStream, QUOTE_MINTS } from './onchain/market.js';
 import { runLiveScan } from './jobs/liveScan.js';
-import { runSetupWatcher } from './jobs/setups.js';
+import { armedPairs, onLivePrice, runSetupWatcher } from './jobs/setups.js';
+import { SetupPriceFeed } from './onchain/priceFeed.js';
 import { DumpDetector } from './jobs/dumps.js';
 import { ChartQueue, runChartChecks, runSweep, runWatch } from './jobs/watch.js';
 import { restoreIfMissing, SnapshotSaver } from './db/snapshot.js';
@@ -137,8 +138,14 @@ async function main(): Promise<void> {
   if (tracker) scheduler.add('live-scan', config.live.detectIntervalMs, () => runLiveScan(db, tracker, notifier, stopped), 60_000);
   if (config.tracking.enabled) scheduler.add('outcomes', outcomeIntervalMs, () => runOutcomeTracker(db, notifier, stopped), 30_000);
   // Real-time triggers: neckline / hammer-high crosses alert immediately instead of at candle close.
+  // Real-time on-chain prices for coins with an armed setup: a cross is acted on within seconds.
+  const priceFeed = config.setups.priceFeed.enabled
+    ? new SetupPriceFeed((token, price) => void onLivePrice(db, tracker, notifier, token, price).catch((err) => logger.warn({ err: errMsg(err) }, 'live price check failed')))
+    : null;
+  priceFeed?.start();
   scheduler.add('setups', config.setups.watchIntervalMs, async () => {
     await runSetupWatcher(db, tracker, notifier, stopped);
+    priceFeed?.sync(armedPairs(db));
     db.pruneSetups(Date.now() - 7 * 86_400_000);
   }, 20_000);
 
@@ -164,6 +171,8 @@ async function main(): Promise<void> {
         upstream: Object.fromEntries(
           Object.entries(limiters).map(([k, l]) => [k, { ok: l.completed, rateLimited: l.rateLimitHits, queued: l.queued, intervalMs: l.intervalMs }]),
         ),
+        armedSetups: db.armedSetups().length,
+        realtimeFeeds: priceFeed?.size ?? 0,
         memMb: Math.round(process.memoryUsage().rss / 1e6),
       });
   const pinger = config.hosting.publicUrl ? startSelfPing(config.hosting.publicUrl, 10 * 60_000) : null;
@@ -182,6 +191,7 @@ async function main(): Promise<void> {
     const finalSave = saver?.stop();
     pumpportal.stop();
     tracker?.stop();
+    priceFeed?.stop();
     market?.stop();
     if (pinger) clearInterval(pinger);
     server?.close();

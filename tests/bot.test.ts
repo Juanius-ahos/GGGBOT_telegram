@@ -28,25 +28,23 @@ const alertPayload = (pattern: 'double_bottom' | 'hammer', timeframe: '5m' | '15
   }) as never;
 
 describe('My alerts preferences', () => {
-  it('defaults to everything but early alerts, toggles in place, and filters alerts', async () => {
+  it('defaults to breakouts + drops only, toggles in place, and filters alerts', async () => {
     const { db, bot, sent, tap, say } = harness();
     await say(1, '/start');
     await say(2, '/start');
 
     await say(1, '🔔 My alerts');
     const panel = sent.at(-1)!;
-    expect(panel.text).toContain('<b>Patterns:</b> Double bottom, Hammer, Sudden drop\n'); // early alerts off by default
+    expect(panel.text).toContain('<b>Patterns:</b> Double bottom, Sudden drop\n'); // hammers + early alerts are opt-in
     expect(panel.text).toContain('15m, 1h, 4h');
-    await tap(1, 'tp:db_forming'); // chat 1: early alerts on
 
-    await tap(1, 'tp:hammer'); // chat 1: hammer off
     await tap(1, 'tt:15m'); // chat 1: 15m off
-    expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom, Early: DB forming, Sudden drop');
-    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'db_forming', 'dump'], timeframes: ['5m', '1h', '4h'] });
+    expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom, Sudden drop');
+    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'dump'], timeframes: ['5m', '1h', '4h'] });
 
     sent.length = 0;
     await bot.alert(alertPayload('hammer', '1h'));
-    expect(sent.filter((s) => s.kind !== 'toast').map((s) => s.chatId)).toEqual([2]); // chat 1 opted out of hammers
+    expect(sent.filter((s) => s.kind !== 'toast').map((s) => s.chatId)).toEqual([]); // hammers are opt-in: nobody by default
     sent.length = 0;
     await bot.alert(alertPayload('double_bottom', '15m'));
     expect(sent.map((s) => s.chatId)).toEqual([2]); // chat 1 opted out of 15m
@@ -62,8 +60,7 @@ describe('My alerts preferences', () => {
     const { sent, tap, say } = harness();
     await say(1, '/start');
     await tap(1, 'tp:double_bottom');
-    await tap(1, 'tp:hammer');
-    await tap(1, 'tp:dump'); // early alerts are already off by default
+    await tap(1, 'tp:dump'); // hammers and early alerts are already off by default
     expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain("You'll get no alerts");
   });
 

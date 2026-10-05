@@ -225,6 +225,13 @@ export const config = {
    * hammer high instead of waiting for the candle to close.
    */
   setups: {
+    /**
+     * Early "forming" alert only while price is this far under the neckline (about to break). All live alerts 1-5 Oct
+     * 2026: 5-15% under +1.1%/trade (n=38, ~break-even after fees); everything else -5.2%/trade (n=84). Opt-in.
+     */
+    formingZone: { minBelowPct: 5, maxBelowPct: 15 },
+    /** Real-time on-chain price for coins with an armed setup (websocket, no GeckoTerminal). PRICE_FEED=0 disables. */
+    priceFeed: { enabled: process.env.PRICE_FEED !== '0', maxPools: 60, throttleMs: 1500 },
     watchIntervalMs: 20_000,
     /** Price must clear the trigger level by this much (filters ticks that just touch it). */
     crossBufferPct: 0.003,
@@ -267,6 +274,11 @@ export const config = {
      * distance to the stop (late entries). Live data 1-3 Oct 2026: R:R >= 1 averaged +23.7%, R:R < 1 +0.4%.
      */
     minRewardToRisk: 1,
+    /**
+     * Breakout alerts (double bottom / hammer) are skipped once the live price is more than this % past the trigger
+     * level. All live double-bottom breakouts 1-5 Oct 2026: <=5% past won 75% (+13.1%/trade, n=24); >5% -1.2% (n=10).
+     */
+    maxChasePct: 5,
   },
 
   /**
@@ -303,6 +315,12 @@ export const config = {
     minDropPct: 30,
     /** Falls deeper than this are still alerted, labelled as a possible rug. */
     rugLabelAbovePct: 50,
+    /**
+     * Falls deeper than rugLabelAbovePct, or ending under this market cap, are rugs (live 3-5 Oct 2026: 139 of 225 5m
+     * drops were >50%, many to ~$2K MC). They are not entries, so they are not sent.
+     */
+    alertRugs: false,
+    minMcAfterUsd: 50_000,
   },
 
   /**

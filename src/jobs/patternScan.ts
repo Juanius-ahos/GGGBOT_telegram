@@ -123,6 +123,21 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
     log.info({ token: t.symbol, pattern: s.pattern, tf: s.timeframe }, 'signal found but price already below stop; skipped');
     return null;
   }
+  // Speed gates from live results: late breakouts lose, early alerts only pay close to the neckline.
+  const level = s.neckline; // neckline (double bottom) or hammer high
+  const pastPct = ((priceNow - level) / level) * 100;
+  if (s.trigger !== 'forming' && pastPct > config.alerts.maxChasePct) {
+    log.info({ token: t.symbol, pattern: s.pattern, tf: s.timeframe, pastPct: +pastPct.toFixed(1) }, 'too late: price already past the trigger; skipped');
+    return null;
+  }
+  if (s.trigger === 'forming') {
+    const below = -pastPct;
+    const z = config.setups.formingZone;
+    if (below < z.minBelowPct || below > z.maxBelowPct) {
+      log.debug({ token: t.symbol, tf: s.timeframe, belowPct: +below.toFixed(1) }, 'forming setup outside the early-entry zone; not sent');
+      return null;
+    }
+  }
   const rr = (s.target - priceNow) / (priceNow - s.invalidation);
   if (s.trigger !== 'forming' && rr < config.alerts.minRewardToRisk) {
     log.info({ token: t.symbol, pattern: s.pattern, tf: s.timeframe, rr: +rr.toFixed(2) }, 'signal found but entry too late (reward < risk); skipped');

@@ -11,6 +11,7 @@ import { dexpaprika, scaleVolume } from '../sources/dexpaprika.js';
 import { geckoterminal } from '../sources/geckoterminal.js';
 import { limiters } from '../sources/limiters.js';
 import { armFromCandles } from './setups.js';
+import { sampled } from './prescreen.js';
 
 const log = logger.child({ job: 'scan' });
 
@@ -180,6 +181,8 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
 export async function checkToken(db: Db, t: WatchToken, notifier: Notifier, via: string, lookbackSec: number): Promise<number> {
   const fetched = await fetchBase(t);
   db.markScanned(t.address);
+  // Real candles become the base the minute-by-minute pre-screen extends.
+  sampled.seed(t.address, fetched.candles, fetched.sec);
   const byTf = multiTimeframe(fetched.candles, fetched.sec, config.timeframes, config.detectCandles);
   let found = 0;
   for (const [tf, candles] of byTf) {

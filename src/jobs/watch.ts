@@ -10,6 +10,10 @@ import { limiters } from '../sources/limiters.js';
 import { wake } from './discovery.js';
 import type { DumpDetector } from './dumps.js';
 import { checkToken } from './patternScan.js';
+import { sampled } from './prescreen.js';
+
+/** Queue score for a coin whose sampled candles show a forming setup: ahead of any activity score. */
+const PRESCREEN_PRIORITY = 1e6;
 
 const log = logger.child({ job: 'watch' });
 
@@ -70,6 +74,7 @@ export class ChartQueue {
 export async function runWatch(db: Db, dumps: DumpDetector, queue: ChartQueue, notifier: Notifier, isStopped: () => boolean): Promise<void> {
   const tokens = db.scanQueue(100_000);
   dumps.retain(new Set(tokens.map((t) => t.address)));
+  sampled.retain(new Set(tokens.map((t) => t.address)));
   let hot = 0;
   for (let i = 0; i < tokens.length && !isStopped(); i += 30) {
     const chunk = tokens.slice(i, i + 30);
@@ -85,6 +90,7 @@ export async function runWatch(db: Db, dumps: DumpDetector, queue: ChartQueue, n
       const pair = pairFor(t, pairs);
       const p = Number(pair?.priceUsd);
       if (!pair || !p) continue;
+      sampled.observe(t.address, now / 1000, p);
       const score = activityScore(pair);
       if (score > 0 && now - (t.last_scanned_at ?? 0) >= config.watch.recheckAfterMs) {
         queue.add(t.address, score);
@@ -106,7 +112,18 @@ export async function runWatch(db: Db, dumps: DumpDetector, queue: ChartQueue, n
       }
     }
   }
-  db.setKv('job:watch:summary', `${tokens.length} coins watched, ${hot} active this minute, ${queue.size} waiting for a chart check`);
+  // Setups forming on the sampled candles jump the chart queue, so the real chart can arm them before the breakout.
+  let early = 0;
+  for (const hit of sampled.scan()) {
+    queue.add(hit.token, PRESCREEN_PRIORITY);
+    early++;
+    log.info({ token: db.getToken(hit.token)?.symbol, tf: hit.timeframe, kind: hit.kind }, 'setup forming on live samples; chart check queued first');
+  }
+  db.setKv(
+    'job:watch:summary',
+    `${tokens.length} coins watched, ${hot} active this minute, ${queue.size} waiting for a chart check, ` +
+      `${sampled.size} pre-screened live${early ? `, ${early} forming setups jumped the queue` : ''}`,
+  );
 }
 
 /**

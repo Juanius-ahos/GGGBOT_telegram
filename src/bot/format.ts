@@ -89,7 +89,7 @@ export function alertCaption(a: AlertCore, s: Signal): string {
     .filter((l) => l !== null)
     .join('\n');
   const hammerBits = s.hammer
-    ? `hammer wick ${Number.isFinite(s.hammer.lowerWickToBody) ? s.hammer.lowerWickToBody.toFixed(1) + '×' : '∞×'} body · after ${pct(-s.hammer.priorDeclinePct * 100)} drop`
+    ? `${s.hammer.inverted ? 'inverted · upper' : 'lower'} wick ${Number.isFinite(s.hammer.wickToBody) ? s.hammer.wickToBody.toFixed(1) + '×' : '∞×'} body · after ${pct(-s.hammer.priorDeclinePct * 100)} drop`
     : '';
   const detail =
     s.pattern === 'hammer'
@@ -106,7 +106,8 @@ export function alertCaption(a: AlertCore, s: Signal): string {
   const volLine = forming
     ? `💰 MC <b>${usd(a.market_cap)}</b>   💧 Liq <b>${usd(a.liquidity_usd)}</b>`
     : `💰 MC <b>${usd(a.market_cap)}</b>   💧 Liq <b>${usd(a.liquidity_usd)}</b>   📊 Vol <b>${volRatio.toFixed(1)}×</b> ${trigger === 'cross' && s.pattern === 'double_bottom' ? 'avg pace' : 'avg'}`;
-  const title = trigger === 'cross' ? CROSS_TITLE[s.pattern] ?? PATTERN_TITLE[s.pattern] : PATTERN_TITLE[s.pattern];
+  const baseTitle = trigger === 'cross' ? CROSS_TITLE[s.pattern] ?? PATTERN_TITLE[s.pattern] : PATTERN_TITLE[s.pattern];
+  const title = s.hammer?.inverted ? baseTitle.replace('HAMMER REVERSAL', 'INVERTED HAMMER') : baseTitle;
   return [
     `${title} · <b>${s.timeframe}</b>`,
     ``,

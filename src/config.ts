@@ -55,6 +55,8 @@ export interface HammerConfig {
   /** Hammer volume must be at least this multiple of the recent average volume. */
   minVolumeVsAvg: number;
   volumeAvgPeriod: number;
+  /** Also detect inverted hammers (long upper wick at a bottom), same rules with the wick flipped. */
+  inverted: boolean;
   /** Require the next candle to close above the hammer's high before alerting. */
   requireConfirmation: boolean;
   /** Confirmation candle must close above the hammer's 'high' (strict) or its closing price ('close', textbook). */
@@ -200,6 +202,8 @@ export const config = {
     rangeAvgPeriod: 14,
     minVolumeVsAvg: 1.0,
     volumeAvgPeriod: 20,
+    // Off: backtest on 400 coins' real 15m/1h candles (8 Oct) found no edge (86 15m trades, -0.1% to -3.3% per trade).
+    inverted: false,
     requireConfirmation: true,
     confirmAbove: 'high' as 'high' | 'close',
     invalidationBufferPct: 0.01,

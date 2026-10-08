@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { config, type HammerConfig } from '../src/config.js';
-import { detectHammer, isHammerShape } from '../src/patterns/hammer.js';
+import { detectHammer, isHammerShape, isInvertedHammerShape } from '../src/patterns/hammer.js';
 import { findSignals } from '../src/patterns/signals.js';
 import { aggregate, multiTimeframe } from '../src/patterns/timeframes.js';
 import type { Candle } from '../src/patterns/types.js';
@@ -40,6 +40,11 @@ describe('hammer shape', () => {
   });
   it('rejects inverted hammer / shooting star (long upper wick)', () => {
     expect(isHammerShape({ time: 0, open: 1, close: 1.01, high: 1.06, low: 0.995, volume: 1 }, cfg)).toBe(false);
+  });
+  it('accepts the inverted hammer only with the inverted check (long upper wick, body at the bottom)', () => {
+    const inv = { time: 0, open: 1, close: 1.01, high: 1.06, low: 0.998, volume: 1 };
+    expect(isInvertedHammerShape(inv, cfg)).toBe(true);
+    expect(isInvertedHammerShape({ time: 0, open: 1, close: 1.01, high: 1.011, low: 0.95, volume: 1 }, cfg)).toBe(false); // regular hammer
   });
   it('rejects big-bodied candles and zero-range candles', () => {
     expect(isHammerShape({ time: 0, open: 1, close: 1.05, high: 1.051, low: 0.98, volume: 1 }, cfg)).toBe(false);
@@ -105,6 +110,21 @@ describe('detectHammer', () => {
     expect(detectHammer([...prior, tiny, confirm(tiny)], cfg)).toBeNull();
     // A tiny candle can't undercut the previous candles' 1% wicks either, so its control relaxes both rules.
     expect(detectHammer([...prior, tiny, confirm(tiny)], { ...cfg, minRangeVsAvg: 0.1, lowLookback: 1 })).not.toBeNull();
+  });
+
+  it('fires on an inverted hammer at a bottom once the next candle closes above its high', () => {
+    const prior = downtrend();
+    const prev = prior[prior.length - 1];
+    const open = prev.close * 0.985; // gaps under the previous low, so it prints the lowest low
+    const close = open * 1.006;
+    const h = { time: prev.time + 900, open, close, high: close + (close - open) * 4, low: open * 0.9995, volume: 180 };
+    const on = { ...cfg, inverted: true };
+    const r = detectHammer([...prior, h, confirm(h)], on);
+    expect(r).not.toBeNull();
+    expect(r!.inverted).toBe(true);
+    expect(r!.wickToBody).toBeCloseTo(4, 6);
+    expect(detectHammer([...prior, h, confirm(h)], cfg)).toBeNull(); // off by default (no edge in the backtest)
+    expect(detectHammer([...prior, hammerAfter(prior), confirm(hammerAfter(prior))], on)!.inverted).toBe(false);
   });
 
   it('rejects a short lower wick', () => {

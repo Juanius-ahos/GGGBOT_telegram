@@ -5,10 +5,13 @@ export interface HammerResult {
   /** The hammer candle. */
   hammerIndex: number;
   hammer: Candle;
+  /** Inverted hammer: long upper wick, small body at the bottom of the candle. */
+  inverted: boolean;
   /** The candle that fired the signal: the confirmation candle (or the hammer itself if confirmation is off). */
   triggerIndex: number;
   trigger: Candle;
-  lowerWickToBody: number;
+  /** Long wick (lower for a hammer, upper for an inverted hammer) as a multiple of the body. */
+  wickToBody: number;
   priorDeclinePct: number;
   volume: number;
   avgVolume: number;
@@ -43,11 +46,22 @@ export function isHammerShape(c: Candle, cfg: HammerConfig): boolean {
   );
 }
 
+/** Mirror image: long upper wick, small body near the bottom, little or no lower wick. */
+export function isInvertedHammerShape(c: Candle, cfg: HammerConfig): boolean {
+  const s = shape(c);
+  if (!(s.range > 0)) return false;
+  return (
+    s.upperWick >= cfg.minLowerWickToBody * s.body &&
+    s.upperWick >= cfg.minLowerWickPctOfRange * s.range &&
+    s.lowerWick <= cfg.maxUpperWickPctOfRange * s.range
+  );
+}
+
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
 /**
  * A "proper" hammer whose signal candle is the LAST candle of `candles` (closed candles, oldest first):
- *  - hammer geometry (isHammerShape)
+ *  - hammer geometry (isHammerShape), or an inverted hammer (isInvertedHammerShape) when `cfg.inverted` is on
  *  - follows a decline and prints the lowest low of the lookback (it is at a bottom, not mid-range)
  *  - meaningful size (range vs recent average) and at least average volume
  *  - confirmed: the next candle closes above the hammer's high (when confirmation is enabled)
@@ -59,8 +73,10 @@ export function detectHammer(candles: Candle[], cfg: HammerConfig): HammerResult
   if (h < need) return null;
 
   const hc = candles[h];
-  if (!isHammerShape(hc, cfg)) return null;
+  const inverted = !isHammerShape(hc, cfg);
+  if (inverted && !(cfg.inverted && isInvertedHammerShape(hc, cfg))) return null;
   const s = shape(hc);
+  const wick = inverted ? s.upperWick : s.lowerWick;
 
   const from = candles[h - 1 - cfg.priorTrendCandles].close;
   const to = candles[h - 1].close;
@@ -84,9 +100,10 @@ export function detectHammer(candles: Candle[], cfg: HammerConfig): HammerResult
   return {
     hammerIndex: h,
     hammer: hc,
+    inverted,
     triggerIndex: t,
     trigger,
-    lowerWickToBody: s.body > 0 ? s.lowerWick / s.body : Infinity,
+    wickToBody: s.body > 0 ? wick / s.body : Infinity,
     priorDeclinePct: decline,
     volume: hc.volume,
     avgVolume,

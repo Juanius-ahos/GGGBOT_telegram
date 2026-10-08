@@ -19,6 +19,7 @@ import { ChartQueue, runChartChecks, runSweep, runWatch } from './jobs/watch.js'
 import { restoreIfMissing, SnapshotSaver } from './db/snapshot.js';
 import { startHealthServer, startSelfPing } from './health.js';
 import { limiters } from './sources/limiters.js';
+import { sampled } from './jobs/prescreen.js';
 
 // Jobs catch their own API errors; a stray rejection is logged, not fatal.
 process.on('unhandledRejection', (err) => logger.error({ err: errMsg(err) }, 'unhandled rejection'));
@@ -58,6 +59,13 @@ async function main(): Promise<void> {
   // Only the hosted instance uploads; a dev copy with the same DATABASE_URL must never overwrite live state.
   const saver = config.hosting.databaseUrl && config.hosting.snapshotUpload ? new SnapshotSaver(db, config.hosting.databaseUrl, config.hosting.snapshotMinutes * 60_000) : null;
   saver?.start();
+  // Pre-screen candles saved by the previous instance: early detection continues across the restart.
+  try {
+    const restored = sampled.load(db.takePrescreen());
+    if (restored) logger.info({ coins: restored }, 'pre-screen candles restored');
+  } catch (err) {
+    logger.warn({ err: errMsg(err) }, 'pre-screen restore failed');
+  }
   logger.info({ db: config.dbPath, rpc: config.rpcUrl.replace(/api[-_]?key=[^&]+/i, 'api-key=***'), gtRpm: config.rateLimits.geckoterminal, scanBudget: scanBudget(), dryRun }, 'starting GGG_BOT');
 
   let bot: Bot | null = null;
@@ -188,6 +196,12 @@ async function main(): Promise<void> {
     }, 30_000);
     force.unref();
     // Snapshot FIRST: hosts like Render kill the process ~30s after SIGTERM, and waiting for jobs can take that long.
+    // Pre-screen candles go into it so the next instance doesn't start blind.
+    try {
+      db.savePrescreen(sampled.dump());
+    } catch (err) {
+      logger.warn({ err: errMsg(err) }, 'saving pre-screen candles failed');
+    }
     const finalSave = saver?.stop();
     pumpportal.stop();
     tracker?.stop();

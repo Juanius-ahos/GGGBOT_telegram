@@ -38,11 +38,25 @@ describe('SampledCandles pre-screen', () => {
     expect(hits).toBe(1);
   });
 
-  it('ignores coins that have no real chart yet', () => {
+  it('starts watching a coin from minute samples before its first real chart', () => {
     const s = new SampledCandles();
     s.observe('NEW', 1_790_000_000, 1);
-    expect(s.size).toBe(0);
-    expect(s.scan(1_790_000_100)).toEqual([]);
+    expect(s.size).toBe(1);
+    expect(s.isSeeded('NEW')).toBe(false); // still needs a real chart for older history
+    s.seed('NEW', seedW(), 900);
+    expect(s.isSeeded('NEW')).toBe(true);
+  });
+
+  it('survives a restart: dump at shutdown, load at start', () => {
+    const a = new SampledCandles();
+    a.seed('TOK', seedW(), 900);
+    a.observe('NEW', 1_790_000_000, 1);
+    const saved = JSON.parse(JSON.stringify(a.dump())); // through JSON, like the database
+    const b = new SampledCandles();
+    expect(b.load(saved)).toBe(2);
+    expect(b.isSeeded('TOK')).toBe(true);
+    expect(b.isSeeded('NEW')).toBe(false);
+    expect(b.dump().find((r) => r.token === 'TOK')!.candles.length).toBe(seedW().length);
   });
 
   it('drops coins that left the watchlist', () => {

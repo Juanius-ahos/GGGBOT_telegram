@@ -145,7 +145,7 @@ async function chartWorker(db: Db, queue: ChartQueue, notifier: Notifier, isStop
       // Baseline pass only while nothing is waiting on the candle APIs.
       if (limiters.gecko.queued > 0 || limiters.dexpaprika.queued > 0) break;
       // First, coins the pre-screen can't watch yet (no real chart since the last restart).
-      const unseeded = db.scanQueue(100_000).find((c) => !sampled.has(c.address) && Date.now() - (c.last_scanned_at ?? 0) > 60_000);
+      const unseeded = db.scanQueue(100_000).find((c) => !sampled.isSeeded(c.address) && Date.now() - (c.last_scanned_at ?? 0) > 60_000);
       if (unseeded) {
         address = unseeded.address;
         via = 'seed';

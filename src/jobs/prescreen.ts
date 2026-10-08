@@ -29,6 +29,8 @@ function prescreenConfig(): { doubleBottom: DoubleBottomConfig; hammer: HammerCo
 
 export class SampledCandles {
   private series = new Map<string, CandleSeries>();
+  /** Coins whose candles include real chart history (not only minute samples). */
+  private seeded = new Set<string>();
   /** Setups already flagged (token:tf:kind:key time) -> when, so each one jumps the queue once. */
   private flagged = new Map<string, number>();
   hitsLastHour: number[] = [];
@@ -39,15 +41,50 @@ export class SampledCandles {
     const s = new CandleSeries(baseSec, 600);
     s.seed(candles);
     this.series.set(token, s);
+    this.seeded.add(token);
   }
 
-  /** One live price sample; extends the coin's candles (ignored until its first chart check). */
+  /** True once a real chart check has given this coin real history. */
+  isSeeded(token: string): boolean {
+    return this.seeded.has(token);
+  }
+
+  /**
+   * One live price sample. Coins without a real chart yet start a 5m series from samples alone, so setups whose
+   * lows form after this point are caught with no download; the first chart check replaces it with real history.
+   */
   observe(token: string, tSec: number, price: number): void {
-    if (price > 0) this.series.get(token)?.tick(tSec, price, 0);
+    if (!(price > 0)) return;
+    let s = this.series.get(token);
+    if (!s) {
+      s = new CandleSeries(300, 600);
+      this.series.set(token, s);
+    }
+    s.tick(tSec, price, 0);
+  }
+
+  /** Every coin's candles, for saving across a restart. */
+  dump(): { token: string; intervalSec: number; candles: Candle[]; seeded: boolean }[] {
+    return [...this.series].map(([token, s]) => ({ token, intervalSec: s.intervalSec, candles: s.all(), seeded: this.seeded.has(token) }));
+  }
+
+  /** Restore saved candles (only coins not already loaded). */
+  load(rows: { token: string; intervalSec: number; candles: Candle[]; seeded?: boolean }[]): number {
+    let n = 0;
+    for (const r of rows) {
+      if (this.series.has(r.token) || !r.candles.length) continue;
+      const s = new CandleSeries(r.intervalSec, 600);
+      s.seed(r.candles);
+      this.series.set(r.token, s);
+      if (r.seeded) this.seeded.add(r.token);
+      n++;
+    }
+    return n;
   }
 
   retain(tokens: Set<string>): void {
     for (const k of this.series.keys()) if (!tokens.has(k)) this.series.delete(k);
+    for (const k of this.seeded) if (!tokens.has(k)) this.seeded.delete(k);
   }
 
   get size(): number {

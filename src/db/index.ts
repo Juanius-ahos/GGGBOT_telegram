@@ -216,6 +216,14 @@ CREATE TABLE IF NOT EXISTS dumps (
   created_at    INTEGER NOT NULL
 );
 
+-- Pre-screen candles saved at shutdown and loaded at start, so a redeploy doesn't reset early detection.
+CREATE TABLE IF NOT EXISTS prescreen_candles (
+  token_address TEXT PRIMARY KEY,
+  interval_sec  INTEGER NOT NULL,
+  seeded        INTEGER NOT NULL DEFAULT 0,
+  candles       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS kv (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -442,6 +450,20 @@ export function openDb(file: string) {
     bestWorst() {
       const rows = stmts.bestWorst.all() as { symbol: string; ret: number }[];
       return rows.length ? { best: rows[0], worst: rows[rows.length - 1] } : null;
+    },
+
+    savePrescreen(rows: { token: string; intervalSec: number; candles: unknown[]; seeded: boolean }[]) {
+      const ins = db.prepare(`INSERT INTO prescreen_candles (token_address, interval_sec, seeded, candles) VALUES (?, ?, ?, ?)`);
+      db.transaction(() => {
+        db.prepare(`DELETE FROM prescreen_candles`).run();
+        for (const r of rows) ins.run(r.token, r.intervalSec, r.seeded ? 1 : 0, JSON.stringify(r.candles));
+      })();
+    },
+    /** Reads and clears the saved pre-screen candles (they are only needed once, at start). */
+    takePrescreen(): { token: string; intervalSec: number; candles: any[]; seeded: boolean }[] {
+      const rows = db.prepare(`SELECT token_address, interval_sec, seeded, candles FROM prescreen_candles`).all() as { token_address: string; interval_sec: number; seeded: number; candles: string }[];
+      db.prepare(`DELETE FROM prescreen_candles`).run();
+      return rows.map((r) => ({ token: r.token_address, intervalSec: r.interval_sec, seeded: r.seeded === 1, candles: JSON.parse(r.candles) }));
     },
 
     getKv: (key: string) => (stmts.getKv.get(key) as { value: string } | undefined)?.value,

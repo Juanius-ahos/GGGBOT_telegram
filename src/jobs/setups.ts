@@ -88,7 +88,8 @@ export async function armFromCandles(db: Db, token: WatchToken, tf: Timeframe, c
       const sinceL2 = candles.length - 1 - s.secondLow.index;
       if (sinceL2 <= config.doubleBottom.swingLookback + config.setups.earlyMaxCandlesAfterConfirm) {
         const sig = dbSignal(s, candles, tf, 'db_forming', 'forming', last.close, s.avgVolume > 0 ? last.volume / s.avgVolume : 0);
-        const alertId = await maybeAlert(db, token, sig, candles, notifier, 'forming');
+        sig.target = s.neckline; // early entry takes profit at the neckline
+        const alertId = await maybeAlert(db, token, sig, candles, notifier, 'early-entry');
         if (alertId) db.setSetupEarlyAlert(id, alertId);
       }
     }
@@ -185,21 +186,6 @@ async function evaluateSetup(db: Db, s: SetupRow, price: number, pair: DexPair |
 
   inFlight.add(s.id);
   try {
-    // Early heads-up once price is in the zone just under the neckline (one attempt per setup).
-    if (s.pattern === 'double_bottom' && s.early_alert_id == null && !formingTried.has(s.id)) {
-      const below = ((s.trigger_level - price) / s.trigger_level) * 100;
-      const z = config.setups.formingZone;
-      if (below >= z.minBelowPct && below <= z.maxBelowPct) {
-        formingTried.add(s.id);
-        const data = chartData(s, tracker, nowSec);
-        if (data.db && data.candles.length) {
-          const sig = dbSignal(data.db, data.candles, s.timeframe, 'db_forming', 'forming', price, 0);
-          const alertId = await maybeAlert(db, token, sig, data.candles, notifier, 'forming-zone');
-          if (alertId) db.setSetupEarlyAlert(s.id, alertId);
-        }
-      }
-    }
-
     if (price < s.trigger_level * (1 + config.setups.crossBufferPct)) return;
 
     let volumeRatio = 0;

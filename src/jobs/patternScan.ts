@@ -132,10 +132,10 @@ async function alertToken(db: Db, t: WatchToken, s: Signal, candles: Candle[], n
     return null;
   }
   if (s.trigger === 'forming') {
-    const below = -pastPct;
-    const z = config.setups.formingZone;
-    if (below < z.minBelowPct || below > z.maxBelowPct) {
-      log.debug({ token: t.symbol, tf: s.timeframe, belowPct: +below.toFixed(1) }, 'forming setup outside the early-entry zone; not sent');
+    // Early entry pays only with real room to the neckline (its take-profit).
+    const roomPct = ((s.neckline - priceNow) / priceNow) * 100;
+    if (roomPct < config.setups.early.minRoomPct) {
+      log.debug({ token: t.symbol, tf: s.timeframe, roomPct: +roomPct.toFixed(1) }, 'early entry: not enough room to the neckline; not sent');
       return null;
     }
   }

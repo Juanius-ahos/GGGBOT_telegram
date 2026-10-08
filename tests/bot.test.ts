@@ -28,19 +28,19 @@ const alertPayload = (pattern: 'double_bottom' | 'hammer', timeframe: '5m' | '15
   }) as never;
 
 describe('My alerts preferences', () => {
-  it('defaults to breakouts + drops only, toggles in place, and filters alerts', async () => {
+  it('defaults to everything but hammers, toggles in place, and filters alerts', async () => {
     const { db, bot, sent, tap, say } = harness();
     await say(1, '/start');
     await say(2, '/start');
 
     await say(1, '🔔 My alerts');
     const panel = sent.at(-1)!;
-    expect(panel.text).toContain('<b>Patterns:</b> Double bottom, Sudden drop\n'); // hammers + early alerts are opt-in
+    expect(panel.text).toContain('<b>Patterns:</b> Double bottom, Early entry, Sudden drop\n'); // hammers are opt-in
     expect(panel.text).toContain('15m, 1h, 4h');
 
     await tap(1, 'tt:15m'); // chat 1: 15m off
-    expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom, Sudden drop');
-    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'dump'], timeframes: ['5m', '1h', '4h'] });
+    expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain('<b>Patterns:</b> Double bottom, Early entry, Sudden drop');
+    expect(db.getPrefs(1)).toEqual({ patterns: ['double_bottom', 'db_forming', 'dump'], timeframes: ['5m', '1h', '4h'] });
 
     sent.length = 0;
     await bot.alert(alertPayload('hammer', '1h'));
@@ -60,7 +60,8 @@ describe('My alerts preferences', () => {
     const { sent, tap, say } = harness();
     await say(1, '/start');
     await tap(1, 'tp:double_bottom');
-    await tap(1, 'tp:dump'); // hammers and early alerts are already off by default
+    await tap(1, 'tp:db_forming');
+    await tap(1, 'tp:dump'); // hammers are already off by default
     expect(sent.filter((s) => s.kind === 'edit').at(-1)!.text).toContain("You'll get no alerts");
   });
 
@@ -99,8 +100,8 @@ describe('update announcement', () => {
     sent.length = 0;
     expect(await bot.announceOnce()).toBe(2);
     expect(sent.map((s) => s.chatId).sort()).toEqual([1, 2]);
-    expect(sent[0].text).toContain('Faster breakouts');
-    expect(sent[0].text).toContain('No late alerts');
+    expect(sent[0].text).toContain('Early entry alert');
+    expect(sent[0].text).toContain('Faster detection');
     sent.length = 0;
     expect(await new Bot(db, 'TEST').announceOnce()).toBeNull(); // a restarted bot sees it was already sent
     expect(await bot.announceOnce()).toBeNull();

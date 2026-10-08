@@ -60,7 +60,7 @@ const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length));
 export const PATTERN_TITLE: Record<string, string> = {
   double_bottom: '🟢 <b>DOUBLE BOTTOM BREAKOUT</b>',
   hammer: '🔨 <b>HAMMER REVERSAL</b>',
-  db_forming: '📍 <b>DOUBLE BOTTOM FORMING</b>',
+  db_forming: '📍 <b>EARLY ENTRY · DOUBLE BOTTOM</b>',
 };
 const CROSS_TITLE: Record<string, string> = {
   double_bottom: '⚡ <b>DOUBLE BOTTOM BREAKOUT · LIVE</b>',
@@ -81,7 +81,7 @@ export function alertCaption(a: AlertCore, s: Signal): string {
   const toTrigger = ((a.neckline - ref) / ref) * 100;
   const table = [
     `${pad(forming ? 'Now' : 'Entry', 8)}${pad(price(ref), 16)}`,
-    forming ? `${pad('Trigger', 8)}${pad(price(a.neckline), 16)}${pct(toTrigger)}` : null,
+    null,
     `${pad('Target', 8)}${pad(price(a.target), 16)}${pct(up)}`,
     `${pad('Stop', 8)}${pad(price(a.invalidation), 16)}${pct(down)}`,
     `${pad('R:R', 8)}${rr.toFixed(2)}`,
@@ -101,7 +101,7 @@ export function alertCaption(a: AlertCore, s: Signal): string {
         ? `⏱ <i>Price just broke the hammer's high (candle still open).</i>`
         : `⏱ <i>Price just crossed the neckline (candle still open).</i>`
       : forming
-        ? `⏳ <i>Not confirmed yet: both lows are in. I'll send ⚡ the moment price breaks the neckline (${pct(toTrigger)} from here).</i>`
+        ? `⏳ <i>Second low just confirmed. Take profit at the neckline (${pct(toTrigger)}), stop under the second low. Most early entries stop out; the winners are several times bigger. I'll send ⚡ if it breaks out.</i>`
         : null;
   const volLine = forming
     ? `💰 MC <b>${usd(a.market_cap)}</b>   💧 Liq <b>${usd(a.liquidity_usd)}</b>`
@@ -190,25 +190,23 @@ export const PATTERNS = ['double_bottom', 'hammer', 'db_forming', 'dump'] as con
  * the neckline won 75% (+13.1%/trade, n=24). Early heads-ups (+1.1%/trade in the 5-15% zone, ~break-even after fees)
  * and hammers (EV ~0) are opt-in.
  */
-export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 'hammer' && p !== 'db_forming');
-export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early: DB forming', dump: 'Sudden drop' };
+export const DEFAULT_PATTERNS: readonly string[] = PATTERNS.filter((p) => p !== 'hammer');
+export const PATTERN_NAME: Record<string, string> = { double_bottom: 'Double bottom', hammer: 'Hammer', db_forming: 'Early entry', dump: 'Sudden drop' };
 
 /** One-time "what's new" message for existing subscribers (sent once per `ANNOUNCEMENT_ID`). */
-export const ANNOUNCEMENT_ID = '2026-10-05-speed';
+export const ANNOUNCEMENT_ID = '2026-10-08-early-entry';
 const NL = String.fromCharCode(10);
 export function announcementMessage(cfg: AppConfig): string {
   return [
-    `🆕 <b>GGG_BOT update: faster, fewer, better alerts</b>`,
+    `🆕 <b>GGG_BOT update: early entries</b>`,
     ``,
-    `⚡ <b>Faster breakouts.</b> Coins with a setup ready are now watched directly on the Solana chain (price every few seconds). The alert goes out on the first price past the breakout level.`,
+    `📍 <b>New: Early entry alert.</b> Sent the moment a double bottom's second low is confirmed, before the breakout. Take profit at the neckline, stop just under the second low. Only sent when the neckline is at least ${cfg.setups.early.minRoomPct}% above the price.`,
     ``,
-    `⏭ <b>No late alerts.</b> If price is already more than ${cfg.alerts.maxChasePct}% past the breakout level, you won't get the alert: in our live results, late entries lost money.`,
+    `⚠️ <b>How it behaves:</b> most early entries stop out; the winners are several times bigger. Tested on real charts (110 setups, ~10 days): 29% won, +4.2% per trade on average before fees, better with more room to the neckline. Size small.`,
     ``,
-    `🩸 <b>Rugs removed from drop alerts.</b> Falls over ${cfg.dumps.rugLabelAbovePct}% or down to under $${Math.round(cfg.dumps.minMcAfterUsd / 1000)}K market cap are rugs, not dips, so they're no longer sent. Real ${cfg.dumps.minDropPct}–${cfg.dumps.rugLabelAbovePct}% drops still are.`,
+    `⚡ <b>Faster detection:</b> every watched coin is pre-screened each minute, so setups are found as they form instead of after the move.`,
     ``,
-    `🎯 <b>Default alerts:</b> double-bottom breakouts + sudden drops. Early "forming" heads-ups and hammers are opt-in in ${MENU.myAlerts}. If you already picked your alerts, nothing changes for you.`,
-    ``,
-    `📊 <b>Why:</b> we checked all 200 alerts from 1–5 Oct against the real charts. Double-bottom breakouts caught within ${cfg.alerts.maxChasePct}% of the neckline reached their target before their stop 18 times out of 24. Small sample: not a guarantee.`,
+    `Ⓦ Breakout alerts are unchanged (70% won across 51 live alerts so far). Turn early entries off or on in ${MENU.myAlerts}.`,
     ``,
     `<i>Not financial advice. Always use the stop.</i>`,
   ].join(NL);

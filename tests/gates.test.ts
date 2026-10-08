@@ -39,11 +39,12 @@ describe('speed gates (from live results)', () => {
     expect(sent).toHaveLength(0);
   });
 
-  it('sends the early heads-up only 5-15% under the neckline', async () => {
+  it('sends an early entry only with at least 25% room to the neckline (its take-profit)', async () => {
     const { db, sent, notifier, token } = setup();
-    expect(await maybeAlert(db, token, sig('db_forming', 'forming', 0.8), [], notifier, 'test')).toBeNull(); // 20% under: too early
-    expect(await maybeAlert(db, token, sig('db_forming', 'forming', 0.98), [], notifier, 'test')).toBeNull(); // 2% under: let the breakout alert handle it
-    expect(await maybeAlert(db, token, sig('db_forming', 'forming', 0.9), [], notifier, 'test')).not.toBeNull(); // 10% under: in the zone
+    // Early entries sit right above the second low, so their stop is lower than the breakout fixture's.
+    const early = (entry: number) => ({ ...sig('db_forming', 'forming', entry), invalidation: 0.7, firstLow: 0.72, secondLow: 0.71, target: 1.0 });
+    expect(await maybeAlert(db, token, early(0.9), [], notifier, 'test')).toBeNull(); // 11% room: not worth it
+    expect(await maybeAlert(db, token, early(0.75), [], notifier, 'test')).not.toBeNull(); // 33% room
     expect(sent).toHaveLength(1);
   });
 });

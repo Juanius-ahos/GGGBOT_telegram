@@ -226,10 +226,12 @@ export const config = {
    */
   setups: {
     /**
-     * Early "forming" alert only while price is this far under the neckline (about to break). All live alerts 1-5 Oct
-     * 2026: 5-15% under +1.1%/trade (n=38, ~break-even after fees); everything else -5.2%/trade (n=84). Opt-in.
+     * Early entry: alert the moment a double bottom's second low is confirmed, take profit at the neckline, stop 1%
+     * under the second low, only when the neckline is at least `minRoomPct` above the price. Real 15m data, 30
+     * watched coins, ~10 days to 8 Oct 2026 (110 formations): TP at neckline won 29% for +4.2%/trade overall; with
+     * >25% room +9.6%/trade (n=50), with less room -0.6% (n=57). Expect ~7 in 10 to stop out; winners ~4x bigger.
      */
-    formingZone: { minBelowPct: 5, maxBelowPct: 15 },
+    early: { minRoomPct: 25 },
     /** Real-time on-chain price for coins with an armed setup (websocket, no GeckoTerminal). PRICE_FEED=0 disables. */
     priceFeed: { enabled: process.env.PRICE_FEED !== '0', maxPools: 60, throttleMs: 1500 },
     watchIntervalMs: 20_000,

@@ -54,6 +54,10 @@ export class SampledCandles {
     return this.series.size;
   }
 
+  has(token: string): boolean {
+    return this.series.has(token);
+  }
+
   /** New setups since the last call (each reported once). */
   scan(nowSec = Date.now() / 1000): PrescreenHit[] {
     const cfg = prescreenConfig();
